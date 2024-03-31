@@ -1301,6 +1301,8 @@ dependencies = [
  "uuid",
  "warp",
  "warp-range",
+ "warp-real-ip",
+ "warp_ratelimit",
 ]
 
 [[package]]
@@ -1413,6 +1415,15 @@ checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
 dependencies = [
  "hmac",
  "subtle",
+]
+
+[[package]]
+name = "rfc7239"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "087317b3cf7eb481f13bd9025d729324b7cd068d6f470e2d76d049e191f5ba47"
+dependencies = [
+ "uncased",
 ]
 
 [[package]]
@@ -2088,6 +2099,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 
 [[package]]
+name = "uncased"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1b88fcfe09e89d3866a5c11019378088af2d24c3fbd4f0543f96b479ec90697"
+dependencies = [
+ "version_check",
+]
+
+[[package]]
 name = "unicase"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2232,6 +2252,26 @@ checksum = "aebb308b5e06a50cc258fd10da3e7a15e9afd11b0c865c63c3c207956a66813a"
 dependencies = [
  "async-stream",
  "hyper",
+ "tokio",
+ "warp",
+]
+
+[[package]]
+name = "warp-real-ip"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22f23ff9f07b19eab4161057a2378cede84d618d3553cb01fe2111bee684003b"
+dependencies = [
+ "rfc7239",
+ "warp",
+]
+
+[[package]]
+name = "warp_ratelimit"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d6478825e7c9512510b2e1df4d9f4e025c0ded5cca14b7eed7c0f8dc93bb9a1"
+dependencies = [
  "tokio",
  "warp",
 ]

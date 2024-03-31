@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::IpAddr, sync::Arc};
 
 use anyhow::anyhow;
 use log::debug;
@@ -52,9 +52,8 @@ impl CdnServiceImpl {
         }
     }
 
-    pub async fn serve_file(&self, token: String, remote: SocketAddr) -> Result<Option<String>> {
-        let remote_ip = remote.ip().to_string();
-        debug!("serve_file: token={}, client_ip={}", token, remote_ip);
+    pub async fn serve_file(&self, token: String, remote: IpAddr) -> Result<Option<String>> {
+        debug!("serve_file: token={}, client={}", token, remote);
 
         let redis = self.redis.pool.clone();
         // Get the song id from the token
@@ -64,7 +63,7 @@ impl CdnServiceImpl {
         };
 
         // Check if the provided token is valid
-        let tokens_set = format!("cdn_token_set:{}:{}", song_id, remote_ip);
+        let tokens_set = format!("cdn_token_set:{}:{}", song_id, remote);
         let token_valid = format!("cdn_token_valid:{}", token);
         let is_member = redis
             .get()
@@ -80,15 +79,14 @@ impl CdnServiceImpl {
         }
     }
 
-    pub async fn serve_token(&self, id: SongId, remote: SocketAddr) -> Result<CdnFetchResult> {
-        let remote_ip = remote.ip().to_string();
-        debug!("serve_token: id={}, client_ip={}", id, remote_ip);
+    pub async fn serve_token(&self, id: SongId, remote: IpAddr) -> Result<CdnFetchResult> {
+        debug!("serve_token: id={}, client={}", id, remote);
 
         let redis = self.redis.pool.clone();
         match self.get_video_file_path(id).await {
             // Now if the file exists, we can generate a token for the client.
             Some(_) => {
-                let tokens_set = format!("cdn_token_set:{}:{}", id, remote_ip);
+                let tokens_set = format!("cdn_token_set:{}:{}", id, remote);
                 let token = token_for_song_id(id);
                 let token_valid = format!("cdn_token_valid:{}", token);
 
