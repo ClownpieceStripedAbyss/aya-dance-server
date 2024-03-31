@@ -52,18 +52,31 @@ impl CdnServiceImpl {
         }
     }
 
-    pub async fn serve_file(&self, token: String, remote: IpAddr) -> Result<Option<String>> {
+    pub async fn serve_file(
+        &self,
+        id: Option<SongId>,
+        token: String,
+        remote: IpAddr,
+    ) -> Result<Option<String>> {
         debug!("serve_file: token={}, client={}", token, remote);
 
         let redis = self.redis.pool.clone();
         // Get the song id from the token
-        let song_id = match song_id_for_token(&token) {
+        let id_in_token = match song_id_for_token(&token) {
             Some(id) => id,
             None => return Err(anyhow!("Invalid token")),
         };
 
+        // If provided, the song id must match the one in the token
+        match id {
+            Some(id) if id != id_in_token => {
+                return Err(anyhow!("Invalid token"));
+            }
+            _ => (),
+        }
+
         // Check if the provided token is valid
-        let tokens_set = format!("cdn_token_set:{}:{}", song_id, remote);
+        let tokens_set = format!("cdn_token_set:{}:{}", id_in_token, remote);
         let token_valid = format!("cdn_token_valid:{}", token);
         let is_member = redis
             .get()
@@ -72,7 +85,7 @@ impl CdnServiceImpl {
             .await?;
         let is_valid = redis_get!(redis, token_valid, false);
         if is_member && is_valid {
-            Ok(self.get_video_file_path(song_id).await)
+            Ok(self.get_video_file_path(id_in_token).await)
         } else {
             redis.get().await?.srem(&tokens_set, token).await?;
             return Err(anyhow!("Invalid token"));

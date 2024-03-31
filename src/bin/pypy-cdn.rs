@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     convert::Infallible,
     net::{IpAddr, SocketAddr},
 };
@@ -76,8 +77,10 @@ async fn server(app: AppService) -> Result<()> {
                         format!("https://jd.pypy.moe/api/{}/videos/{}.mp4", version, id)
                     }
                     CdnFetchResult::Hit(token) => {
-                        // Found in our CDN, let's redirect to our CDN with a token
-                        format!("/resources/{}.mp4", token)
+                        // Found in our CDN, let's redirect to the resource gateway.
+                        // Note: in prior versions, we used the format `{token}.mp4`,
+                        // which turned out it's not caching-friendly.
+                        format!("/v/{}.mp4?auth={}", id, token)
                     }
                 };
                 Ok::<_, Rejection>(
@@ -91,31 +94,39 @@ async fn server(app: AppService) -> Result<()> {
 
     // Resource Gateway: https://base-url/resources/227.mp4?token=xxx
     // We need: https://base-url/resources/{id}.mp4?token=<token>
-    let video =
-        warp::get()
-            .and(warp::path!("resources" / String))
-            .and(with_service(&app))
-            .and(real_ip())
-            .and(warp_range::filter_range())
-            .and_then(
-                |token_mp4: String,
-                 app: AppService,
-                 remote: Option<IpAddr>,
-                 range: Option<String>| async move {
-                    let token = token_mp4.trim_end_matches(".mp4").to_string();
-                    let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
-                    let video_file = app
-                        .cdn
-                        .serve_file(token.clone(), remote.clone())
-                        .await
-                        .map_err(|_| warp::reject::custom(CustomRejection::BadToken))?
-                        // There shouldn't be a token if the file is not found, which is
-                        // guaranteed by the gateway.
-                        .ok_or(warp::reject::custom(CustomRejection::AreYouTryingToHackMe))?;
+    let video = warp::get()
+        .and(warp::path!("v" / String))
+        .and(warp::path::end())
+        .and(warp::query::<HashMap<String, String>>())
+        .and(with_service(&app))
+        .and(real_ip())
+        .and(warp_range::filter_range())
+        .and_then(
+            |id_mp4: String,
+             qs: HashMap<String, String>,
+             app: AppService,
+             remote: Option<IpAddr>,
+             range: Option<String>| async move {
+                let id = id_mp4
+                    .trim_end_matches(".mp4")
+                    .parse::<SongId>()
+                    .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
+                let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+                let token = qs
+                    .get("auth")
+                    .ok_or(warp::reject::custom(CustomRejection::BadToken))?;
+                let video_file = app
+                    .cdn
+                    .serve_file(Some(id), token.clone(), remote.clone())
+                    .await
+                    .map_err(|_| warp::reject::custom(CustomRejection::BadToken))?
+                    // There shouldn't be a token if the file is not found, which is
+                    // guaranteed by the gateway.
+                    .ok_or(warp::reject::custom(CustomRejection::AreYouTryingToHackMe))?;
 
-                    warp_range::get_range(range, video_file.as_str(), "video/mp4").await
-                },
-            );
+                warp_range::get_range(range, video_file.as_str(), "video/mp4").await
+            },
+        );
 
     // Ok, let's run the server
     let routes = gateway.or(video).with(cors()).recover(handle_rejection);
