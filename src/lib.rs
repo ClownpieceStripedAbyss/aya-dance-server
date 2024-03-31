@@ -21,8 +21,6 @@ pub struct AppOpts {
     pub video_path: String,
     #[clap(short, long, env, default_value = "[::]:80")]
     pub listen: String,
-    #[clap(short, long, env, default_value = "https://jd.kiva.moe")]
-    pub base_url: String,
 }
 
 #[derive(Debug)]

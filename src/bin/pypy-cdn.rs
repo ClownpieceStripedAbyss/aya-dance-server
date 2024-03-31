@@ -23,7 +23,6 @@ async fn main() {
         .expect("Failed to initialize app service");
 
     info!("pypy-cdn: starting daemon");
-    info!("base_url: {}", app.opts.base_url);
     info!("video_path: {}", app.opts.video_path);
     info!("redis_url: {}", app.opts.redis_url);
 
@@ -78,7 +77,7 @@ async fn server(app: AppService) -> Result<()> {
                     }
                     CdnFetchResult::Hit(token) => {
                         // Found in our CDN, let's redirect to our CDN with a token
-                        format!("{}/resources/{}.mp4", app.opts.base_url, token)
+                        format!("/resources/{}.mp4", token)
                     }
                 };
                 Ok::<_, Rejection>(
