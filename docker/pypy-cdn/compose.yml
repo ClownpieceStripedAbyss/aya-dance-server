@@ -5,7 +5,7 @@ services:
       options:
         max-size: "20m"
         max-file: "10"
-    image: ghcr.io/ClownpieceStripedAbyss/pypy-cdn:latest
+    image: ghcr.io/clownpiecestripedabyss/pypy-cdn:latest
     env_file: ./docker.env
     ports:
       - "127.0.0.1:8080:8080"
