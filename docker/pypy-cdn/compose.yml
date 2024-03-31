@@ -1,0 +1,31 @@
+services:
+  backend:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "10"
+    image: ghcr.io/ClownpieceStripedAbyss/pypy-cdn:latest
+    env_file: ./docker.env
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - redis
+  redis:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "10"
+    image: redis
+    env_file: ./docker.env
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ./data/redis.conf:/redis.conf
+    command: [ "redis-server", "/redis.conf" ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 30s
+      retries: 3

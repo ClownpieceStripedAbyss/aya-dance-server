@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PACKAGE_TAG="ghcr.io/zfc-core/rustybee-debugloader"
+PACKAGE_TAG="ghcr.io/ClownpieceStripedAbyss/pypy-cdn"
 
 if git rev-parse --git-dir > /dev/null 2>&1; then
     if [[ $NO_DIRTY != '' ]]; then
@@ -19,7 +19,7 @@ PACKAGE_TAG_FULL="$PACKAGE_TAG:$PACKAGE_VER"
 PACKAGE_TAG_LATEST="$PACKAGE_TAG:latest"
 
 echo "Building $PACKAGE_TAG_FULL"
-docker build . -t $PACKAGE_TAG_FULL -f docker/debugloader/Dockerfile
+docker build . -t $PACKAGE_TAG_FULL -f docker/pypy-cdn/Dockerfile
 
 echo "Tagged $PACKAGE_TAG_FULL as $PACKAGE_TAG_LATEST"
 docker tag $PACKAGE_TAG_FULL $PACKAGE_TAG_LATEST
