@@ -52,17 +52,17 @@ async fn server(app: AppService) -> Result<()> {
         .parse::<SocketAddr>()
         .expect("Failed to parse listen address");
 
-    let songs = warp::path!("api" / "v1" / "songs")
+    let songs = warp::path!("api" / String / "songs")
         .and(warp::get())
         .and(with_service(&app))
-        .and_then(|_app: AppService| async move {
-            debug!("GET /api/v1/songs");
+        .and_then(|version: String, _app: AppService| async move {
+            debug!("GET /api/{}/songs", version);
             // Redirect to https://jd.pypy.moe/api/v1/songs
-            let location = "https://jd.pypy.moe/api/v1/songs";
+            let location = format!("https://jd.pypy.moe/api/{}/songs", version);
             Ok::<_, Rejection>(
                 warp::http::Response::builder()
                     .status(StatusCode::FOUND)
-                    .header(warp::http::header::LOCATION, location)
+                    .header(warp::http::header::LOCATION, location.clone())
                     .body(location),
             )
         });
