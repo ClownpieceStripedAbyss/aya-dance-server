@@ -7,6 +7,8 @@ services:
         max-file: "10"
     image: ghcr.io/clownpiecestripedabyss/pypy-cdn:latest
     env_file: ./docker.env
+    volumes:
+      - ./data/song:/pypydance-data
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
