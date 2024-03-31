@@ -7,7 +7,9 @@ use std::{
 use clap::Parser;
 use log::{debug, info, trace, warn};
 use pypy_cdn::{cdn::CdnFetchResult, types::SongId, AppOpts, AppService, AppServiceImpl, Result};
-use warp::{addr::remote, http::StatusCode, reject::Reject, Filter, Rejection, Reply};
+use warp::{
+    addr::remote, http::StatusCode, path::FullPath, reject::Reject, Filter, Rejection, Reply,
+};
 use warp_real_ip::get_forwarded_for;
 
 #[tokio::main]
@@ -52,21 +54,6 @@ async fn server(app: AppService) -> Result<()> {
         .parse::<SocketAddr>()
         .expect("Failed to parse listen address");
 
-    let songs = warp::path!("api" / String / "songs")
-        .and(warp::get())
-        .and(with_service(&app))
-        .and_then(|version: String, _app: AppService| async move {
-            debug!("GET /api/{}/songs", version);
-            // Redirect to https://jd.pypy.moe/api/v1/songs
-            let location = format!("https://jd.pypy.moe/api/{}/songs", version);
-            Ok::<_, Rejection>(
-                warp::http::Response::builder()
-                    .status(StatusCode::FOUND)
-                    .header(warp::http::header::LOCATION, location.clone())
-                    .body(location),
-            )
-        });
-
     // API Gateway: https://base-url/api/v1/videos/227.mp4
     // We need: https://base-url/api/{version}/videos/{id}.mp4
 
@@ -107,6 +94,23 @@ async fn server(app: AppService) -> Result<()> {
             },
         );
 
+    let other_api = warp::path!("api" / ..)
+        .and(warp::path::full())
+        .and(warp::get())
+        .and(with_service(&app))
+        .and_then(|full: FullPath, _app: AppService| async move {
+            let path = format!("{}", full.as_str());
+            debug!("GET {}", path);
+            // Redirect to https://jd.pypy.moe
+            let location = format!("https://jd.pypy.moe{}", path);
+            Ok::<_, Rejection>(
+                warp::http::Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header(warp::http::header::LOCATION, location.clone())
+                    .body(location),
+            )
+        });
+
     // Resource Gateway: https://base-url/resources/227.mp4?token=xxx
     // We need: https://base-url/resources/{id}.mp4?token=<token>
     let video = warp::get()
@@ -144,8 +148,8 @@ async fn server(app: AppService) -> Result<()> {
         );
 
     // Ok, let's run the server
-    let routes = songs
-        .or(gateway)
+    let routes = gateway
+        .or(other_api)
         .or(video)
         .with(cors())
         .recover(handle_rejection);
