@@ -8,6 +8,7 @@ use crate::{
 };
 
 pub mod cdn;
+pub mod http;
 pub mod redis;
 pub mod types;
 

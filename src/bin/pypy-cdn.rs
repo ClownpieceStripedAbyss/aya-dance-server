@@ -5,7 +5,7 @@ use std::{
 };
 
 use clap::Parser;
-use log::{info, trace, warn};
+use log::{debug, info, trace, warn};
 use pypy_cdn::{cdn::CdnFetchResult, types::SongId, AppOpts, AppService, AppServiceImpl, Result};
 use warp::{addr::remote, http::StatusCode, reject::Reject, Filter, Rejection, Reply};
 use warp_real_ip::get_forwarded_for;
@@ -51,6 +51,21 @@ async fn server(app: AppService) -> Result<()> {
         .listen
         .parse::<SocketAddr>()
         .expect("Failed to parse listen address");
+
+    let songs = warp::path!("api" / "v1" / "songs")
+        .and(warp::get())
+        .and(with_service(&app))
+        .and_then(|_app: AppService| async move {
+            debug!("GET /api/v1/songs");
+            // Redirect to https://jd.pypy.moe/api/v1/songs
+            let location = "https://jd.pypy.moe/api/v1/songs";
+            Ok::<_, Rejection>(
+                warp::http::Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header(warp::http::header::LOCATION, location)
+                    .body(location),
+            )
+        });
 
     // API Gateway: https://base-url/api/v1/videos/227.mp4
     // We need: https://base-url/api/{version}/videos/{id}.mp4
@@ -129,7 +144,11 @@ async fn server(app: AppService) -> Result<()> {
         );
 
     // Ok, let's run the server
-    let routes = gateway.or(video).with(cors()).recover(handle_rejection);
+    let routes = songs
+        .or(gateway)
+        .or(video)
+        .with(cors())
+        .recover(handle_rejection);
 
     info!("Listening on {}", socket);
     warp::serve(routes).run(socket).await;
