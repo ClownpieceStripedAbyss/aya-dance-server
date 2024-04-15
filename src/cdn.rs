@@ -10,13 +10,13 @@ use crate::{redis::RedisService, types::SongId, Result};
 #[derive(Debug)]
 pub struct CdnServiceImpl {
     pub video_path: String,
-    pub redis: RedisService,
+    pub redis: Option<RedisService>,
 }
 
 pub type CdnService = Arc<CdnServiceImpl>;
 
 impl CdnServiceImpl {
-    pub fn new(video_path: String, redis: RedisService) -> CdnService {
+    pub fn new(video_path: String, redis: Option<RedisService>) -> CdnService {
         Arc::new(CdnServiceImpl { video_path, redis })
     }
 }
@@ -60,7 +60,6 @@ impl CdnServiceImpl {
     ) -> Result<Option<String>> {
         debug!("serve_file: token={}, client={}", token, remote);
 
-        let redis = self.redis.pool.clone();
         // Get the song id from the token
         let id_in_token = match song_id_for_token(&token) {
             Some(id) => id,
@@ -76,44 +75,56 @@ impl CdnServiceImpl {
         }
 
         // Check if the provided token is valid
-        let tokens_set = format!("cdn_token_set:{}:{}", id_in_token, remote);
-        let token_valid = format!("cdn_token_valid:{}", token);
-        let is_member = redis
-            .get()
-            .await?
-            .sismember(&tokens_set, token.clone())
-            .await?;
-        let is_valid = redis_get!(redis, token_valid, false);
+        let (is_member, is_valid) = match &self.redis {
+            None => (true, true),
+            Some(redis) => {
+                let redis = redis.pool.clone();
+                let tokens_set = format!("cdn_token_set:{}:{}", id_in_token, remote);
+                let token_valid = format!("cdn_token_valid:{}", token);
+                let is_member: bool = redis
+                    .get()
+                    .await?
+                    .sismember(&tokens_set, token.clone())
+                    .await?;
+                let is_valid: bool = redis_get!(redis, token_valid, false);
+                if !is_member || !is_valid {
+                    redis.get().await?.srem(&tokens_set, token).await?;
+                }
+                (is_member, is_valid)
+            }
+        };
+
         if is_member && is_valid {
             Ok(self.get_video_file_path(id_in_token).await)
         } else {
-            redis.get().await?.srem(&tokens_set, token).await?;
             return Err(anyhow!("Invalid token"));
         }
     }
 
     pub async fn serve_token(&self, id: SongId, remote: IpAddr) -> Result<CdnFetchResult> {
         debug!("serve_token: id={}, client={}", id, remote);
+        let token = token_for_song_id(id);
 
-        let redis = self.redis.pool.clone();
         match self.get_video_file_path(id).await {
             // Now if the file exists, we can generate a token for the client.
             Some(_) => {
-                let tokens_set = format!("cdn_token_set:{}:{}", id, remote);
-                let token = token_for_song_id(id);
-                let token_valid = format!("cdn_token_valid:{}", token);
+                if let Some(redis) = &self.redis {
+                    let tokens_set = format!("cdn_token_set:{}:{}", id, remote);
+                    let token_valid = format!("cdn_token_valid:{}", token);
 
-                redis.get().await?.sadd(&tokens_set, token.clone()).await?;
-                // Mark the token as valid for 10 minutes
-                redis
-                    .get()
-                    .await?
-                    .set_options(
-                        &token_valid,
-                        true,
-                        SetOptions::default().with_expiration(SetExpiry::EX(10 * 60)),
-                    )
-                    .await?;
+                    let redis = redis.pool.clone();
+                    redis.get().await?.sadd(&tokens_set, token.clone()).await?;
+                    // Mark the token as valid for 10 minutes
+                    redis
+                        .get()
+                        .await?
+                        .set_options(
+                            &token_valid,
+                            true,
+                            SetOptions::default().with_expiration(SetExpiry::EX(10 * 60)),
+                        )
+                        .await?;
+                }
 
                 Ok(CdnFetchResult::Hit(token))
             }

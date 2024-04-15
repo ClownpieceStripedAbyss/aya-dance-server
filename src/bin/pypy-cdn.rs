@@ -14,20 +14,22 @@ use warp_real_ip::get_forwarded_for;
 
 #[tokio::main]
 async fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .filter(Some("warp::server"), log::LevelFilter::Off)
+        .init();
     match dotenvy::dotenv() {
         Err(e) => warn!("dotenv(): failed to load .env file: {}", e),
         _ => {}
     }
 
     let opts = AppOpts::parse();
+
+    info!("pypy-cdn: starting daemon");
+    info!("video path: {}", opts.video_path);
+
     let app = AppServiceImpl::new(opts)
         .await
         .expect("Failed to initialize app service");
-
-    info!("pypy-cdn: starting daemon");
-    info!("video_path: {}", app.opts.video_path);
-    info!("redis_url: {}", app.opts.redis_url);
 
     let server = tokio::spawn(server(app));
 
@@ -154,7 +156,8 @@ async fn server(app: AppService) -> Result<()> {
         .with(cors())
         .recover(handle_rejection);
 
-    info!("Listening on {}", socket);
+    info!("Listening on http://{}", socket);
+    info!("Have a good day!");
     warp::serve(routes).run(socket).await;
 
     Ok(())
