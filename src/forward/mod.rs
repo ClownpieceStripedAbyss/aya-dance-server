@@ -6,7 +6,7 @@ mod tokio_util;
 
 use std::{net::SocketAddr, sync::Arc};
 
-use log::{debug, error};
+use log::{debug, error, info};
 use tcp::TargetData;
 use tokio::net::TcpListener;
 
@@ -28,6 +28,8 @@ pub async fn l3_forward(listen: String, forward: String) -> anyhow::Result<()> {
         next_address_index: Default::default(),
         tcp_nodelay: false,
     });
+    
+    info!("L3 forward listening on {}, to {}", socket, forward);
 
     loop {
         // Currently no QUIC support, we only support TCP
