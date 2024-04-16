@@ -28,13 +28,30 @@ async fn main() {
     info!("pypy-cdn: starting daemon");
     info!("video path: {}", opts.video_path);
 
-    let app = AppServiceImpl::new(opts)
+    let app = AppServiceImpl::new(opts.clone())
         .await
         .expect("Failed to initialize app service");
 
     let server = tokio::spawn(server(app));
+    let l3 = match &opts.builtin_l3_listen {
+        Some(listen) => tokio::spawn(pypy_cdn::forward::l3_forward(
+            listen.clone(),
+            opts.builtin_l3_forward,
+        )),
+        None => {
+            info!("No L3 forwarding configured");
+            tokio::task::spawn(async { Ok(()) })
+        }
+    };
 
     tokio::select! {
+        e = l3, if opts.builtin_l3_listen.is_some() => {
+            match e {
+                Ok(Ok(_)) => info!("L3 Forward exited successfully"),
+                Ok(Err(e)) => warn!("L3 Forward exited with error: {}", e),
+                Err(e) => warn!("L3 Forward exited with error: {}", e),
+            }
+        }
         e = server => {
             match e {
                 Ok(Ok(_)) => info!("Server exited successfully"),

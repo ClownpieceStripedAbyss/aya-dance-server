@@ -9,6 +9,7 @@ use crate::{
 };
 
 pub mod cdn;
+pub mod forward;
 pub mod http;
 pub mod redis;
 pub mod types;
@@ -23,8 +24,12 @@ pub struct AppOpts {
     pub no_auth: bool,
     #[clap(short = 'v', long, env, default_value = "./pypydance-song")]
     pub video_path: String,
-    #[clap(short, long, env, default_value = "[::]:80")]
+    #[clap(short = 'l', long, env, default_value = "[::]:80")]
     pub listen: String,
+    #[clap(short = '3', long, env)]
+    pub builtin_l3_listen: Option<String>,
+    #[clap(short = 'f', long, env, default_value = "jd-orig.kiva.moe:443")]
+    pub builtin_l3_forward: String,
 }
 
 #[derive(Debug)]
