@@ -19,21 +19,22 @@ pub async fn l3_forward(listen: String, forward: String) -> anyhow::Result<()> {
     let socket = listen
         .parse::<SocketAddr>()
         .expect("Failed to parse listen address");
+    let location = Location::Address(
+        NetLocation::try_from(forward.as_str()).expect("Failed to parse forward address"),
+    );
     let target = Arc::new(TargetData {
         location_data: vec![TargetLocationData {
-            location: Location::Address(
-                NetLocation::try_from(forward.as_str()).expect("Failed to parse forward address"),
-            ),
+            location: location.clone(),
         }],
         next_address_index: Default::default(),
         tcp_nodelay: false,
     });
-    
+
     info!("L3 forward listening on {}, to {}", socket, forward);
 
     loop {
         // Currently no QUIC support, we only support TCP
-        if let Err(e) = listen_tcp(socket, target.clone()).await {
+        if let Err(e) = listen_tcp(socket, target.clone(), location.clone()).await {
             error!("L3 Forward exited with error, restarting\n{:?}", e);
         } else {
             debug!("L3 Forward exited unexpectedly, restarting...");
@@ -41,7 +42,11 @@ pub async fn l3_forward(listen: String, forward: String) -> anyhow::Result<()> {
     }
 }
 
-async fn listen_tcp(socket: SocketAddr, forward: Arc<TargetData>) -> anyhow::Result<()> {
+async fn listen_tcp(
+    socket: SocketAddr,
+    forward: Arc<TargetData>,
+    location: Location,
+) -> anyhow::Result<()> {
     let listener = TcpListener::bind(socket).await?;
 
     loop {
@@ -53,7 +58,7 @@ async fn listen_tcp(socket: SocketAddr, forward: Arc<TargetData>) -> anyhow::Res
             }
         };
 
-        debug!("L3 Accepting TCP connection on from {:?}", &client);
+        debug!("L3 {:?} -> {}", &client, &location);
 
         let forward = forward.clone();
 
