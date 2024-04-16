@@ -30,7 +30,7 @@ pub async fn l3_forward(listen: String, forward: String) -> anyhow::Result<()> {
         tcp_nodelay: false,
     });
 
-    info!("L3 forward listening on {}, to {}", socket, forward);
+    info!("L3 forward {} -> {}", socket, forward);
 
     loop {
         // Currently no QUIC support, we only support TCP
