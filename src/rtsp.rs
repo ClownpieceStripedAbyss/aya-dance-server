@@ -1,10 +1,12 @@
 use std::net::SocketAddr;
-use log::{debug, error};
+use log::{debug, error, info};
 use tokio::net::TcpListener;
 
 pub async fn serve_rtsp_typewriter(listen: String) -> anyhow::Result<()> {
     let socket = listen.parse::<SocketAddr>()
         .expect("Failed to parse listen address");
+
+    info!("RTSP typewriter listening on rtsp://{}", socket);
 
     loop {
         if let Err(e) = listen_tcp(socket).await {
