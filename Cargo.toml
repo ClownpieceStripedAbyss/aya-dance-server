@@ -43,3 +43,4 @@ redis = { version = "0.23.3", features = ["tokio-comp", "tls", "serde_json", "se
 bb8 = "0.8.1"
 bb8-redis = "0.13.1"
 
+rtsp-types = "0.1.1"

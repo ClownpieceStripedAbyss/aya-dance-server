@@ -12,6 +12,7 @@ pub mod cdn;
 pub mod forward;
 pub mod http;
 pub mod redis;
+pub mod rtsp;
 pub mod types;
 
 pub type Result<T> = anyhow::Result<T>;
@@ -30,6 +31,8 @@ pub struct AppOpts {
     pub builtin_l3_listen: Option<String>,
     #[clap(short = 'f', long, env, default_value = "jd-orig.kiva.moe:443")]
     pub builtin_l3_forward: String,
+    #[clap(short = 'w', long, env, default_value = "[::]:7991")]
+    pub rtsp_listen: String,
 }
 
 #[derive(Debug)]

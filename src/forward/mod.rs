@@ -15,7 +15,7 @@ use crate::forward::{
     tcp::TargetLocationData,
 };
 
-pub async fn l3_forward(listen: String, forward: String) -> anyhow::Result<()> {
+pub async fn serve_l3_forward(listen: String, forward: String) -> anyhow::Result<()> {
     let socket = listen
         .parse::<SocketAddr>()
         .expect("Failed to parse listen address");
