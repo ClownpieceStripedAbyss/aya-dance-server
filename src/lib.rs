@@ -8,6 +8,7 @@ use log::info;
 use crate::{
   cdn::{CdnService, CdnServiceImpl},
   redis::{RedisService, RedisServiceImpl},
+  rtsp::{TypewriterService, TypewriterServiceImpl},
 };
 
 pub mod cdn;
@@ -41,6 +42,7 @@ pub struct AppOpts {
 pub struct AppServiceImpl {
   pub opts: AppOpts,
   pub redis: Option<RedisService>,
+  pub typewriter: TypewriterService,
   pub cdn: CdnService,
 }
 
@@ -59,6 +61,12 @@ impl AppServiceImpl {
       }
     };
     let cdn = CdnServiceImpl::new(opts.video_path.clone(), redis.clone());
-    Ok(Arc::new(AppServiceImpl { opts, redis, cdn }))
+    let typewriter = Arc::new(TypewriterServiceImpl::default());
+    Ok(Arc::new(AppServiceImpl {
+      opts,
+      redis,
+      cdn,
+      typewriter,
+    }))
   }
 }

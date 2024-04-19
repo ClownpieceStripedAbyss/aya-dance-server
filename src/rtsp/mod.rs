@@ -1,23 +1,77 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+  collections::HashMap,
+  net::{IpAddr, SocketAddr},
+  sync::Arc,
+};
 
 use anyhow::bail;
 use log::{debug, error, info};
 use rtsp_types::{Empty, Message, Method, Response};
-use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter}, join, net::{TcpListener, TcpStream}};
+use tokio::{
+  io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
+  net::{TcpListener, TcpStream},
+  sync::Mutex,
+};
 
-#[derive(Debug)]
-struct WorkerCtxImpl {}
+use crate::AppService;
 
-type WorkerCtx = Arc<WorkerCtxImpl>;
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct ClientToken {
+  pub client_ip: String,
+  pub client_token: String,
+}
 
-pub async fn serve_rtsp_typewriter(listen: String) -> anyhow::Result<()> {
-  let socket = listen
+impl ClientToken {
+  pub fn new(client_ip: IpAddr, token: String) -> ClientToken {
+    ClientToken {
+      client_ip: client_ip.to_string(),
+      client_token: token,
+    }
+  }
+}
+
+#[derive(Debug, Default)]
+pub struct TypewriterServiceImpl {
+  pub typewriters: Mutex<HashMap<ClientToken, Vec<String>>>,
+}
+
+pub type TypewriterService = Arc<TypewriterServiceImpl>;
+
+impl TypewriterServiceImpl {
+  pub async fn write(&self, client: IpAddr, token: String, letter: String) -> anyhow::Result<()> {
+    let token = ClientToken::new(client, token);
+    let mut map = self.typewriters.lock().await;
+    match map.get_mut(&token) {
+      Some(x) => x.push(letter),
+      None => {
+        map.insert(token, vec![letter]);
+      }
+    }
+    Ok(())
+  }
+
+  pub async fn read(&self, client: IpAddr, token: String) -> anyhow::Result<String> {
+    let token = ClientToken::new(client, token);
+    let mut map = self.typewriters.lock().await;
+    match map.get_mut(&token) {
+      Some(x) => {
+        let content = x.join("");
+        x.clear();
+        Ok(content)
+      }
+      None => Ok("".to_string()),
+    }
+  }
+}
+
+pub async fn serve_rtsp_typewriter(ctx: AppService) -> anyhow::Result<()> {
+  let socket = ctx
+    .opts
+    .rtsp_listen
     .parse::<SocketAddr>()
     .expect("Failed to parse listen address");
 
   info!("RTSP typewriter listening on rtsp://{}", socket);
-
-  let ctx = Arc::new(WorkerCtxImpl {});
 
   loop {
     if let Err(e) = listen_tcp(socket, ctx.clone()).await {
@@ -28,7 +82,7 @@ pub async fn serve_rtsp_typewriter(listen: String) -> anyhow::Result<()> {
   }
 }
 
-async fn listen_tcp(socket: SocketAddr, ctx: WorkerCtx) -> anyhow::Result<()> {
+async fn listen_tcp(socket: SocketAddr, ctx: AppService) -> anyhow::Result<()> {
   let listener = TcpListener::bind(socket).await?;
 
   loop {
@@ -54,7 +108,7 @@ async fn listen_tcp(socket: SocketAddr, ctx: WorkerCtx) -> anyhow::Result<()> {
 async fn handle_client(
   mut stream: TcpStream,
   client: SocketAddr,
-  ctx: WorkerCtx,
+  ctx: AppService,
 ) -> anyhow::Result<()> {
   let (rx, tx) = stream.split();
   let mut reader = BufReader::new(rx);
@@ -90,7 +144,7 @@ async fn handle_client(
 }
 
 async fn handle_rtsp_message(
-  ctx: WorkerCtx,
+  ctx: AppService,
   client: SocketAddr,
   raw: &String,
 ) -> anyhow::Result<Response<Empty>> {
@@ -116,6 +170,10 @@ async fn handle_rtsp_message(
       match (method, path.as_slice()) {
         (Method::Describe, ["typewriter", letter]) => {
           info!("RTSP Client {} typewriter: {}", client, letter);
+          ctx
+            .typewriter
+            .write(client.ip(), "114514".to_string(), letter.to_string())
+            .await?;
         }
         _ => (),
       }

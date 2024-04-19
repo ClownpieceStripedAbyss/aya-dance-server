@@ -126,10 +126,35 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
+  // Typewriter gateway
+  let typewriter = warp::get()
+    .and(warp::path!("typewriter" / String))
+    .and(with_service(&app))
+    .and(real_ip())
+    .and_then(
+      |token: String, app: AppService, client: Option<IpAddr>| async move {
+        let client = client.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        let bv = app
+          .typewriter
+          .read(client, token)
+          .await
+          .map_err(|_| warp::reject::custom(CustomRejection::BadToken))?;
+        info!("Typewriter submit {} -> [{}]", client, bv);
+        let location = format!("https://api.xin.moe/ov/{}", bv);
+        Ok::<_, Rejection>(
+          warp::http::Response::builder()
+            .status(StatusCode::FOUND)
+            .header(warp::http::header::LOCATION, location.clone())
+            .body(location),
+        )
+      },
+    );
+
   // Ok, let's run the server
   let routes = gateway
     .or(other_api)
     .or(video)
+    .or(typewriter)
     .with(cors())
     .recover(handle_rejection);
 

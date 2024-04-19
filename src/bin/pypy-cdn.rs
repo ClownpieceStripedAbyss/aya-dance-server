@@ -22,8 +22,8 @@ async fn main() {
     .await
     .expect("Failed to initialize app service");
 
-  let video_http = tokio::spawn(pypy_cdn::http::serve_video_http(app));
-  let rtsp = tokio::spawn(pypy_cdn::rtsp::serve_rtsp_typewriter(opts.rtsp_listen));
+  let video_http = tokio::spawn(pypy_cdn::http::serve_video_http(app.clone()));
+  let rtsp = tokio::spawn(pypy_cdn::rtsp::serve_rtsp_typewriter(app.clone()));
   let l3 = match &opts.builtin_l3_listen {
     Some(listen) => tokio::spawn(pypy_cdn::forward::serve_l3_forward(
       listen.clone(),
