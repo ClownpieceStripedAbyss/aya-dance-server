@@ -88,6 +88,9 @@ impl IndexServiceImpl {
       }
     }
 
+    // Make sure it is sorted by id
+    songs.sort_by_key(|s| s.id);
+
     let mut pypy_categories = songs
       .clone()
       .into_iter()
