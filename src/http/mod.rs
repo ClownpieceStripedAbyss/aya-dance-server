@@ -33,10 +33,25 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .parse::<SocketAddr>()
     .expect("Failed to parse listen address");
 
-  // API Gateway: https://base-url/api/v1/videos/227.mp4
-  // We need: https://base-url/api/{version}/videos/{id}.mp4
+  let aya_root = warp::get()
+    .and(warp::path!("api" / String / "aya"))
+    .and(with_service(&app))
+    .and(real_ip())
+    .and_then(
+      |version: String, _app: AppService, remote: Option<IpAddr>| async move {
+        Ok::<_, Rejection>(
+          warp::http::Response::builder()
+            .status(StatusCode::OK)
+            .body(format!(
+              "Hello {:?}, this is Aya Dance server {}!",
+              remote, version
+            )),
+        )
+      },
+    );
 
-  let gateway = warp::get()
+  // Video gateway: https://base-url/api/v1/videos/{id}.mp4
+  let aya_videos = warp::get()
     .and(warp::path!("api" / String / "videos" / String))
     .and(with_service(&app))
     .and(real_ip())
@@ -73,26 +88,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
-  let other_api = warp::path!("api" / ..)
-    .and(warp::path::full())
-    .and(warp::get())
-    .and(with_service(&app))
-    .and_then(|full: FullPath, _app: AppService| async move {
-      let path = format!("{}", full.as_str());
-      debug!("GET {}", path);
-      // Redirect to https://jd.pypy.moe
-      let location = format!("https://jd.pypy.moe{}", path);
-      Ok::<_, Rejection>(
-        warp::http::Response::builder()
-          .status(StatusCode::FOUND)
-          .header(warp::http::header::LOCATION, location.clone())
-          .body(location),
-      )
-    });
-
-  // Resource Gateway: https://base-url/resources/227.mp4?token=xxx
-  // We need: https://base-url/resources/{id}.mp4?token=<token>
-  let video = warp::get()
+  // Video files gateway: https://base-url/resources/{id}.mp4?auth=<token>
+  let aya_video_files = warp::get()
     .and(warp::path!("v" / String))
     .and(warp::path::end())
     .and(warp::query::<HashMap<String, String>>())
@@ -126,6 +123,44 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
+  // Song metadata index: https://base-url/api/v1/aya/songs
+  let aya_song_index = warp::get()
+    .and(warp::path!("api" / String / "aya" / "songs"))
+    .and(with_service(&app))
+    .and(real_ip())
+    .and_then(
+      |_version: String, _app: AppService, _remote: Option<IpAddr>| async move {
+        Ok::<_, Rejection>(
+          warp::http::Response::builder()
+            .status(StatusCode::OK)
+            .body("TODO: return a json!"),
+        )
+      },
+    );
+
+  // Join them all!
+  let aya = aya_root
+    .or(aya_song_index)
+    .or(aya_videos)
+    .or(aya_video_files);
+
+  let pypy = warp::path!("api" / ..)
+    .and(warp::path::full())
+    .and(warp::get())
+    .and(with_service(&app))
+    .and_then(|full: FullPath, _app: AppService| async move {
+      let path = format!("{}", full.as_str());
+      debug!("GET {}", path);
+      // Redirect to https://jd.pypy.moe
+      let location = format!("https://jd.pypy.moe{}", path);
+      Ok::<_, Rejection>(
+        warp::http::Response::builder()
+          .status(StatusCode::FOUND)
+          .header(warp::http::header::LOCATION, location.clone())
+          .body(location),
+      )
+    });
+
   // Typewriter gateway
   let typewriter = warp::get()
     .and(warp::path!("typewriter" / String))
@@ -151,9 +186,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     );
 
   // Ok, let's run the server
-  let routes = gateway
-    .or(other_api)
-    .or(video)
+  let routes = aya
+    .or(pypy)
     .or(typewriter)
     .with(cors())
     .recover(handle_rejection);
@@ -176,7 +210,7 @@ pub enum CustomRejection {
 
 impl Reject for CustomRejection {}
 
-async fn handle_rejection(e: Rejection) -> std::result::Result<impl Reply, Infallible> {
+async fn handle_rejection(e: Rejection) -> Result<impl Reply, Infallible> {
   trace!("handle_rejection: {:?}", &e);
   Ok(warp::reply::with_status(
     format!("Oops! {:?}", e),
