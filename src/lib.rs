@@ -7,6 +7,7 @@ use log::info;
 
 use crate::{
   cdn::{CdnService, CdnServiceImpl},
+  index::{IndexService, IndexServiceImpl},
   redis::{RedisService, RedisServiceImpl},
   rtsp::{TypewriterService, TypewriterServiceImpl},
 };
@@ -14,6 +15,7 @@ use crate::{
 pub mod cdn;
 pub mod forward;
 pub mod http;
+pub mod index;
 pub mod redis;
 pub mod rtsp;
 pub mod types;
@@ -44,6 +46,7 @@ pub struct AppServiceImpl {
   pub redis: Option<RedisService>,
   pub typewriter: TypewriterService,
   pub cdn: CdnService,
+  pub index: IndexService,
 }
 
 pub type AppService = Arc<AppServiceImpl>;
@@ -62,11 +65,13 @@ impl AppServiceImpl {
     };
     let cdn = CdnServiceImpl::new(opts.video_path.clone(), redis.clone());
     let typewriter = Arc::new(TypewriterServiceImpl::default());
+    let index = IndexServiceImpl::new(opts.video_path.clone()).await?;
     Ok(Arc::new(AppServiceImpl {
       opts,
       redis,
       cdn,
       typewriter,
+      index,
     }))
   }
 }

@@ -9,7 +9,7 @@ use hyper::{
   Body, Client, StatusCode,
 };
 use hyper_tls::HttpsConnector;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use warp::{addr::remote, path::FullPath, reject::Reject, Filter, Rejection, Reply};
 use warp_real_ip::get_forwarded_for;
 
@@ -34,7 +34,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .expect("Failed to parse listen address");
 
   let aya_root = warp::get()
-    .and(warp::path!("api" / String / "aya"))
+    .and(warp::path!("aya-api" / String / "aya"))
     .and(with_service(&app))
     .and(real_ip())
     .and_then(
@@ -125,16 +125,20 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
 
   // Song metadata index: https://base-url/api/v1/aya/songs
   let aya_song_index = warp::get()
-    .and(warp::path!("api" / String / "aya" / "songs"))
+    .and(warp::path!("aya-api" / String / "songs"))
     .and(with_service(&app))
     .and(real_ip())
     .and_then(
-      |_version: String, _app: AppService, _remote: Option<IpAddr>| async move {
-        Ok::<_, Rejection>(
-          warp::http::Response::builder()
-            .status(StatusCode::OK)
-            .body("TODO: return a json!"),
-        )
+      |_version: String, app: AppService, remote: Option<IpAddr>| async move {
+        let _ = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        let index = match app.index.get_index().await {
+          Ok(index) => index,
+          Err(e) => {
+            warn!("Failed to get index: {:?}", e);
+            return Err(warp::reject::custom(CustomRejection::IndexNotReady));
+          }
+        };
+        Ok::<_, Rejection>(warp::reply::json(&index).into_response())
       },
     );
 
@@ -206,6 +210,7 @@ pub enum CustomRejection {
   AreYouTryingToHackMe,
   NoClientIP,
   NoServeToken,
+  IndexNotReady,
 }
 
 impl Reject for CustomRejection {}
