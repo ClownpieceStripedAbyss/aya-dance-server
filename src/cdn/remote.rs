@@ -14,6 +14,7 @@ use crate::{
 pub struct Receipt {
   pub uuid: UuidString,
   pub added_at: i64,
+  pub expire_at: i64,
   pub song_id: Option<SongId>,
   pub song_url: Option<String>,
   pub sender: Option<UserId>,
@@ -68,16 +69,20 @@ impl ReceiptServiceImpl {
       }
       uuid
     };
+    let valid_duration = Duration::from_secs(60 * 10); // 10 minutes
+    let added_at = chrono::Utc::now();
+    let expire_at = added_at + valid_duration;
     let receipt = Receipt {
       uuid: uuid.clone(),
-      added_at: chrono::Utc::now().timestamp(),
+      added_at: added_at.timestamp(),
+      expire_at: expire_at.timestamp(),
       song_id,
       song_url,
       sender,
       target,
       notes,
     };
-    receipts.insert(uuid, receipt.clone(), Duration::from_secs(60 * 10)); // 10 minutes
+    receipts.insert(uuid, receipt.clone(), valid_duration);
     Ok(receipt)
   }
 }
