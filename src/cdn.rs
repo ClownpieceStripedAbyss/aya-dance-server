@@ -53,6 +53,27 @@ impl CdnServiceImpl {
   pub async fn serve_file(
     &self,
     id: Option<SongId>,
+    token: Option<String>,
+    remote: IpAddr,
+  ) -> Result<Option<String>> {
+    match token {
+      Some(token) => self.serve_file_auth(id, token, remote).await,
+      None => {
+        self
+          .serve_file_no_auth(id.ok_or_else(|| anyhow!("missing song id"))?)
+          .await
+      }
+    }
+  }
+
+  pub async fn serve_file_no_auth(&self, id: SongId) -> Result<Option<String>> {
+    debug!("serve_file_no_auth: id={}", id);
+    Ok(self.get_video_file_path(id).await)
+  }
+
+  pub async fn serve_file_auth(
+    &self,
+    id: Option<SongId>,
     token: String,
     remote: IpAddr,
   ) -> Result<Option<String>> {
@@ -142,6 +163,9 @@ fn token_for_song_id(song_id: SongId) -> String {
 }
 
 fn song_id_for_token(token: &str) -> Option<SongId> {
+  if token.len() < 36 {
+    return None;
+  }
   let (uuid, song_id) = token.split_at(36);
   if Uuid::parse_str(uuid).is_ok() {
     decode_song_id(song_id)

@@ -108,20 +108,22 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
         let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
         let token = match qs.get("auth") {
-          Some(token) => token,
+          Some(token) => Some(token.clone()),
+          // allow empty token if no_auth is enabled
+          None if app.opts.no_auth => None,
+          // otherwise, reject
           None => {
             warn!("Missing token, id={}, client={}", id, remote);
             return Err(warp::reject::custom(CustomRejection::BadToken));
           }
         };
-        let video_file = match app
-          .cdn
-          .serve_file(Some(id), token.clone(), remote.clone())
-          .await
-        {
+        let video_file = match app.cdn.serve_file(Some(id), token, remote.clone()).await {
           Ok(Some(video_file)) => video_file,
           Ok(None) => {
-            warn!("Token passed but video not found, id={}, client={}", id, remote);
+            warn!(
+              "Token passed but video not found, id={}, client={}",
+              id, remote
+            );
             return Err(warp::reject::custom(CustomRejection::AreYouTryingToHackMe));
           }
           Err(e) => {
@@ -130,6 +132,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           }
         };
 
+        debug!("serving file: {:?}, client={}", video_file, remote);
         warp_range::get_range(range, video_file.as_str(), "video/mp4").await
       },
     );
