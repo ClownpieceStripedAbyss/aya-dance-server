@@ -61,13 +61,17 @@ impl CdnServiceImpl {
     // Get the song id from the token
     let id_in_token = match song_id_for_token(&token) {
       Some(id) => id,
-      None => return Err(anyhow!("Invalid token")),
+      None => return Err(anyhow!("wrong token format")),
     };
 
     // If provided, the song id must match the one in the token
     match id {
       Some(id) if id != id_in_token => {
-        return Err(anyhow!("Invalid token"));
+        return Err(anyhow!(
+          "song id mismatch: {} (id) != {} (id in token)",
+          id,
+          id_in_token
+        ));
       }
       _ => (),
     }
@@ -95,7 +99,7 @@ impl CdnServiceImpl {
     if is_member && is_valid {
       Ok(self.get_video_file_path(id_in_token).await)
     } else {
-      return Err(anyhow!("Invalid token"));
+      return Err(anyhow!("token expired"));
     }
   }
 

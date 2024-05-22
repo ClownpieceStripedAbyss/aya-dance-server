@@ -105,15 +105,16 @@ impl IndexServiceImpl {
       })
       .sorted_by_key(|c| c.title.clone())
       .collect::<Vec<_>>();
-    
-    let mut categories = vec![]; 
+
+    let mut categories = vec![];
     categories.push(Category {
       title: "All Songs".to_string(),
       entries: songs.clone(),
     });
     categories.push(Category {
       title: "Song's Family".to_string(),
-      entries: songs.iter()
+      entries: songs
+        .iter()
         .filter(|s| s.title.contains("[Song]"))
         .cloned()
         .collect(),
