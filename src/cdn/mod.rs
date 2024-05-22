@@ -5,7 +5,13 @@ use log::debug;
 use redis::{AsyncCommands, SetExpiry, SetOptions};
 use uuid::Uuid;
 
-use crate::{redis::RedisService, types::SongId, Result};
+use crate::{
+  redis::RedisService,
+  types::{SongId, UuidString},
+  Result,
+};
+
+pub mod remote;
 
 #[derive(Debug)]
 pub struct CdnServiceImpl {
@@ -14,6 +20,7 @@ pub struct CdnServiceImpl {
 }
 
 pub type CdnService = Arc<CdnServiceImpl>;
+pub type CdnFetchToken = UuidString;
 
 impl CdnServiceImpl {
   pub fn new(video_path: String, redis: Option<RedisService>) -> CdnService {
@@ -23,7 +30,7 @@ impl CdnServiceImpl {
 
 #[derive(Debug, Clone)]
 pub enum CdnFetchResult {
-  Hit(String),
+  Hit(CdnFetchToken),
   Miss,
 }
 
