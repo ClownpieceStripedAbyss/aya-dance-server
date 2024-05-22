@@ -4,33 +4,13 @@ use std::{
   net::{IpAddr, SocketAddr},
 };
 
-use hyper_tls::HttpsConnector;
 use log::{debug, info, trace, warn};
 use warp::{
-  addr::remote,
-  http::StatusCode,
-  hyper::{
-    client::{connect::dns::GaiResolver, HttpConnector},
-    Body, Client,
-  },
-  path::FullPath,
-  reject::Reject,
-  Filter, Rejection, Reply,
+  addr::remote, http::StatusCode, path::FullPath, reject::Reject, Filter, Rejection, Reply,
 };
 use warp_real_ip::get_forwarded_for;
 
 use crate::{cdn::CdnFetchResult, types::SongId, AppService};
-
-pub type HttpClient = Client<HttpsConnector<HttpConnector<GaiResolver>>, Body>;
-
-pub async fn body_to_bytes(body: Body) -> anyhow::Result<Vec<u8>> {
-  let body = hyper::body::to_bytes(body).await?;
-  Ok(body.into())
-}
-
-pub fn http_client() -> HttpClient {
-  Client::builder().build::<_, Body>(hyper_tls::HttpsConnector::new())
-}
 
 pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
   let socket = app
