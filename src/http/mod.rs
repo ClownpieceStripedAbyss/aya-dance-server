@@ -4,13 +4,19 @@ use std::{
   net::{IpAddr, SocketAddr},
 };
 
-use hyper::{
-  client::{connect::dns::GaiResolver, HttpConnector},
-  Body, Client, StatusCode,
-};
 use hyper_tls::HttpsConnector;
 use log::{debug, info, trace, warn};
-use warp::{addr::remote, path::FullPath, reject::Reject, Filter, Rejection, Reply};
+use warp::{
+  addr::remote,
+  http::StatusCode,
+  hyper::{
+    client::{connect::dns::GaiResolver, HttpConnector},
+    Body, Client,
+  },
+  path::FullPath,
+  reject::Reject,
+  Filter, Rejection, Reply,
+};
 use warp_real_ip::get_forwarded_for;
 
 use crate::{cdn::CdnFetchResult, types::SongId, AppService};
