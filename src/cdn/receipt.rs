@@ -19,7 +19,7 @@ pub struct Receipt {
   pub room_id: RoomId,
   pub target: UserId,
   pub created_at: i64,
-  pub expire_at: i64,
+  pub expires_at: i64,
   pub song_id: Option<SongId>,
   pub song_url: Option<String>,
   pub sender: Option<UserId>,
@@ -138,12 +138,12 @@ impl ReceiptServiceImpl {
     };
     let valid_duration = self.default_expire.clone();
     let created_at = chrono::Utc::now();
-    let expire_at = created_at + valid_duration;
+    let expires_at = created_at + valid_duration;
     let receipt = Receipt {
       receipt_id: uuid.clone(),
       room_id,
       created_at: created_at.timestamp(),
-      expire_at: expire_at.timestamp(),
+      expires_at: expires_at.timestamp(),
       song_id,
       song_url,
       sender,
