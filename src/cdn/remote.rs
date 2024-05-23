@@ -46,6 +46,7 @@ impl ReceiptServiceImpl {
     self
       .receipts
       .snapshot::<HashMap<_, _>>()
+      .await
       .into_iter()
       .filter(|(_, receipt)| receipt.room_id == room_id)
       .map(|(_, receipt)| receipt)
@@ -68,7 +69,7 @@ impl ReceiptServiceImpl {
     };
     let uuid = {
       let mut uuid = UuidString::new();
-      while receipts.contains(&uuid) {
+      while receipts.contains(&uuid).await {
         uuid = UuidString::new();
       }
       uuid
@@ -87,7 +88,7 @@ impl ReceiptServiceImpl {
       target,
       message,
     };
-    receipts.insert(uuid, receipt.clone(), valid_duration);
+    receipts.insert(uuid, receipt.clone(), valid_duration).await;
     Ok(receipt)
   }
 }
