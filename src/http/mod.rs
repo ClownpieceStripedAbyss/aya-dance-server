@@ -298,11 +298,12 @@ pub fn cors() -> warp::cors::Builder {
       "Sec-Fetch-Mode",
       "Referer",
       "Origin",
+      "Cache-Control",
       "Authorization",
       "Access-Control-Request-Method",
       "Access-Control-Request-Headers",
     ])
-    .allow_methods(vec!["GET"])
+    .allow_methods(vec!["GET", "POST", "OPTIONS", "PUT", "DELETE"])
 }
 
 pub fn real_ip() -> impl Filter<Extract = (Option<IpAddr>,), Error = Infallible> + Clone {
