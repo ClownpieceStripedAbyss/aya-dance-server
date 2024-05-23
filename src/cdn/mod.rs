@@ -11,7 +11,7 @@ use crate::{
   Result,
 };
 
-pub mod remote;
+pub mod receipt;
 
 #[derive(Debug)]
 pub struct CdnServiceImpl {

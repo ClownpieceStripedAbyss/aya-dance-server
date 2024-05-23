@@ -7,7 +7,7 @@ use log::info;
 
 use crate::{
   cdn::{
-    remote::{ReceiptService, ReceiptServiceImpl},
+    receipt::{ReceiptService, ReceiptServiceImpl},
     CdnService, CdnServiceImpl,
   },
   index::{IndexService, IndexServiceImpl},

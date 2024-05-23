@@ -14,7 +14,7 @@ use warp_real_ip::get_forwarded_for;
 
 use crate::{
   cdn::{
-    remote::{RoomId, UserId},
+    receipt::{RoomId, UserId},
     CdnFetchResult,
   },
   types::SongId,
