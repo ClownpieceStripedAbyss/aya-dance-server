@@ -295,8 +295,6 @@ pub enum CustomRejection {
   NoClientIP,
   NoServeToken,
   IndexNotReady,
-  MissingReceiptSong,
-  CreateReceiptFailed(String),
 }
 
 impl Reject for CustomRejection {}
