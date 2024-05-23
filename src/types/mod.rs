@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 
 pub type SongId = u32;
 pub type CategoryId = u32;
-pub type UserId = String;
 pub type UuidString = String;
+
+pub mod timedmap;
 
 // {
 //   "id": 1,

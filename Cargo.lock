@@ -884,6 +884,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mock_instant"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9366861eb2a2c436c20b12c8dbec5f798cea6b47ad99216be0282942e2c81ea0"
+
+[[package]]
 name = "multer"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1056,6 +1062,7 @@ dependencies = [
  "hex",
  "itertools",
  "log",
+ "mock_instant",
  "notify",
  "rand",
  "redis",
@@ -1063,7 +1070,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "timedmap",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -1382,12 +1388,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "timedmap"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc430736149d1428180bd452a3fdc981a29e818ee7513929c7d4c73f24df778"
 
 [[package]]
 name = "tinyvec"
