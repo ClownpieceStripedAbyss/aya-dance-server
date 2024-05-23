@@ -1,12 +1,15 @@
 extern crate core;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use log::info;
 
 use crate::{
-  cdn::{CdnService, CdnServiceImpl},
+  cdn::{
+    remote::{ReceiptService, ReceiptServiceImpl},
+    CdnService, CdnServiceImpl,
+  },
   index::{IndexService, IndexServiceImpl},
   redis::{RedisService, RedisServiceImpl},
   rtsp::{TypewriterService, TypewriterServiceImpl},
@@ -38,6 +41,10 @@ pub struct AppOpts {
   pub builtin_l3_forward: String,
   #[clap(short = 'w', long, env, default_value = "[::]:7991")]
   pub rtsp_listen: String,
+  #[clap(long, env, default_value = "5")]
+  pub receipt_max_per_user_per_sender: usize,
+  #[clap(long, env, default_value = "300")]
+  pub receipt_default_expire_seconds: u64,
 }
 
 #[derive(Debug)]
@@ -47,6 +54,7 @@ pub struct AppServiceImpl {
   pub typewriter: TypewriterService,
   pub cdn: CdnService,
   pub index: IndexService,
+  pub receipt: ReceiptService,
 }
 
 pub type AppService = Arc<AppServiceImpl>;
@@ -66,12 +74,18 @@ impl AppServiceImpl {
     let cdn = CdnServiceImpl::new(opts.video_path.clone(), redis.clone());
     let typewriter = Arc::new(TypewriterServiceImpl::default());
     let index = IndexServiceImpl::new(opts.video_path.clone()).await?;
+    let receipt = ReceiptServiceImpl::new(
+      opts.receipt_max_per_user_per_sender,
+      Duration::from_secs(opts.receipt_default_expire_seconds),
+    )
+    .await?;
     Ok(Arc::new(AppServiceImpl {
       opts,
       redis,
       cdn,
       typewriter,
       index,
+      receipt,
     }))
   }
 }

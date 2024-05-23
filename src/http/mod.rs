@@ -4,13 +4,22 @@ use std::{
   net::{IpAddr, SocketAddr},
 };
 
+use itertools::Either;
 use log::{debug, info, trace, warn};
+use serde_derive::Deserialize;
 use warp::{
   addr::remote, http::StatusCode, path::FullPath, reject::Reject, Filter, Rejection, Reply,
 };
 use warp_real_ip::get_forwarded_for;
 
-use crate::{cdn::CdnFetchResult, types::SongId, AppService};
+use crate::{
+  cdn::{
+    remote::{RoomId, UserId},
+    CdnFetchResult,
+  },
+  types::SongId,
+  AppService,
+};
 
 pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
   let socket = app
@@ -189,10 +198,58 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
+  // Remote receipt gateway
+  let receipt_get = warp::get()
+    .and(warp::path!("r" / RoomId))
+    .and(with_service(&app))
+    .and_then(|room_id: RoomId, app: AppService| async move {
+      let receipts = app.receipt.receipts(room_id).await;
+      Ok::<_, Rejection>(warp::reply::json(&receipts).into_response())
+    });
+
+  #[derive(Debug, Clone, Deserialize)]
+  struct ReceiptCreate {
+    target: UserId,
+    id: Option<SongId>,
+    url: Option<String>,
+    sender: Option<UserId>,
+    message: Option<String>,
+  }
+
+  let receipt_post = warp::post()
+    .and(warp::path!("r" / RoomId))
+    .and(warp::body::json())
+    .and(with_service(&app))
+    .and_then(
+      |room_id: RoomId, create: ReceiptCreate, app: AppService| async move {
+        debug!("create receipt: {:?}", &create);
+        let song = match (create.id, create.url) {
+          (Some(song_id), _) => Either::Left(song_id),
+          (_, Some(song_url)) => Either::Right(song_url.trim().to_string()),
+          _ => return Err(warp::reject::custom(CustomRejection::MissingReceiptSong)),
+        };
+        let receipt = app
+          .receipt
+          .create_receipt(
+            room_id,
+            create.target.trim().to_string(),
+            song,
+            create.sender.map(|s| s.trim().to_string()),
+            create.message,
+          )
+          .await
+          .map_err(|e| warp::reject::custom(CustomRejection::CreateReceiptFailed(e.to_string())))?;
+        Ok::<_, Rejection>(warp::reply::json(&receipt).into_response())
+      },
+    );
+
+  let receipt = receipt_get.or(receipt_post);
+
   // Ok, let's run the server
   let routes = aya
     .or(pypy)
     .or(typewriter)
+    .or(receipt)
     .with(cors())
     .recover(handle_rejection);
 
@@ -211,6 +268,8 @@ pub enum CustomRejection {
   NoClientIP,
   NoServeToken,
   IndexNotReady,
+  MissingReceiptSong,
+  CreateReceiptFailed(String),
 }
 
 impl Reject for CustomRejection {}

@@ -11,7 +11,13 @@ pub trait Cleanup: Send + Sync {
   async fn cleanup(&self);
 }
 
-pub fn _start_cleaner(m: Arc<dyn Cleanup>, interval: Duration) -> Box<dyn Fn()> {
+/// Start a new cleanup cycle on the given [`Cleanup`](crate::Cleanup)
+/// implementation instance and returns a function to cancel the
+/// cleanup cycle.
+///
+/// On each elapse, the map ich checked for expired
+/// key-value pairs and removes them from the map.
+pub fn tokio_cleaner(m: Arc<dyn Cleanup>, interval: Duration) -> Box<dyn Fn()> {
   let job = tokio::spawn(async move {
     loop {
       tokio::time::sleep(interval).await;
@@ -19,14 +25,4 @@ pub fn _start_cleaner(m: Arc<dyn Cleanup>, interval: Duration) -> Box<dyn Fn()> 
     }
   });
   Box::new(move || job.abort())
-}
-
-/// Start a new cleanup cycle on the given [`Cleanup`](crate::Cleanup)
-/// implementation instance and returns a function to cancel the
-/// cleanup cycle.
-///
-/// On each elapse, the map ich checked for expired
-/// key-value pairs and removes them from the map.
-pub fn start_cleaner(m: Arc<dyn Cleanup>, interval: Duration) -> Box<dyn Fn()> {
-  _start_cleaner(m, interval)
 }
