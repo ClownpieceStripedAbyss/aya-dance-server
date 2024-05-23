@@ -7,6 +7,7 @@ use std::{
 use itertools::Either;
 use log::{debug, info, trace, warn};
 use serde_derive::Deserialize;
+use serde_json::json;
 use warp::{
   addr::remote, http::StatusCode, path::FullPath, reject::Reject, Filter, Rejection, Reply,
 };
@@ -226,9 +227,17 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         let song = match (create.id, create.url) {
           (Some(song_id), _) => Either::Left(song_id),
           (_, Some(song_url)) => Either::Right(song_url.trim().to_string()),
-          _ => return Err(warp::reject::custom(CustomRejection::MissingReceiptSong)),
+          _ => {
+            return Ok(
+              warp::reply::json(&json!({
+                "message": "missing song id or url",
+                "receipt": null,
+              }))
+              .into_response(),
+            )
+          }
         };
-        let receipt = app
+        let receipt = match app
           .receipt
           .create_receipt(
             room_id,
@@ -238,8 +247,26 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             create.message,
           )
           .await
-          .map_err(|e| warp::reject::custom(CustomRejection::CreateReceiptFailed(e.to_string())))?;
-        Ok::<_, Rejection>(warp::reply::json(&receipt).into_response())
+        {
+          Ok(receipt) => receipt,
+          Err(e) => {
+            let format = format!("create receipt failed: {:?}", e);
+            return Ok(
+              warp::reply::json(&json!({
+                "message": format,
+                "receipt": null,
+              }))
+              .into_response(),
+            );
+          }
+        };
+        Ok::<_, Infallible>(
+          warp::reply::json(&json!({
+            "message": "ok",
+            "receipt": receipt,
+          }))
+          .into_response(),
+        )
       },
     );
 
