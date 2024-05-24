@@ -19,7 +19,10 @@ pub mod timedmap;
 //   "start": 0,
 //   "end": 202,
 //   "flip": false,
-//   "skipRandom": false
+//   "skipRandom": false,
+//   "originalUrl": [
+//     "https://exmaple.com/"
+//   ]
 // },
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Song {
@@ -38,6 +41,8 @@ pub struct Song {
   pub flip: bool,
   #[serde(rename = "skipRandom")]
   pub skip_random: bool,
+  #[serde(rename = "originalUrl")]
+  pub original_url: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
