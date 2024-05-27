@@ -15,7 +15,7 @@ async fn main() {
 
   let opts = AppOpts::parse();
 
-  info!("pypy-cdn: starting daemon");
+  info!("aya-dance: starting daemon");
   info!("video path: {}", opts.video_path);
 
   let app = AppServiceImpl::new(opts.clone())

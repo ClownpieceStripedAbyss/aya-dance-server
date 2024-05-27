@@ -19,7 +19,7 @@ PACKAGE_TAG_FULL="$PACKAGE_TAG:$PACKAGE_VER"
 PACKAGE_TAG_LATEST="$PACKAGE_TAG:latest"
 
 echo "Building $PACKAGE_TAG_FULL"
-docker build . -t $PACKAGE_TAG_FULL -f docker/pypy-cdn/Dockerfile
+docker build . -t $PACKAGE_TAG_FULL -f docker/aya-dance/Dockerfile
 
 echo "Tagged $PACKAGE_TAG_FULL as $PACKAGE_TAG_LATEST"
 docker tag $PACKAGE_TAG_FULL $PACKAGE_TAG_LATEST
