@@ -22,7 +22,8 @@ pub mod timedmap;
 //   "skipRandom": false,
 //   "originalUrl": [
 //     "https://exmaple.com/"
-//   ]
+//   ],
+//   "checksum": "ef2e97e4118f146cb3d472fe48c7d9e2"
 // },
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Song {
@@ -43,6 +44,7 @@ pub struct Song {
   pub skip_random: bool,
   #[serde(rename = "originalUrl")]
   pub original_url: Vec<String>,
+  pub checksum: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
