@@ -36,14 +36,17 @@ impl IndexServiceImpl {
 }
 
 impl IndexServiceImpl {
-  pub async fn get_index(&self) -> Result<SongIndex> {
+  pub async fn get_index(&self, force_rebuild: bool) -> Result<SongIndex> {
     let mut index = self.index.lock().await;
+    if force_rebuild {
+      *index = None;
+    }
     if let Some(index) = &*index {
       return Ok(index.clone());
     }
     let result = self.build_index().await?;
     *index = Some(result.clone());
-    Ok(result)
+    Ok(result) // implicitly drop the lock
   }
 
   pub async fn build_index(&self) -> Result<SongIndex> {

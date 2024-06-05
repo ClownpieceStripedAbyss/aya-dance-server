@@ -2,7 +2,7 @@ mod async_stream;
 mod copy_bidirectional;
 mod location;
 mod tcp;
-mod tokio_util;
+pub mod tokio_util;
 
 use std::{net::SocketAddr, sync::Arc};
 

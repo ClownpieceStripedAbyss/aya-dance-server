@@ -45,6 +45,9 @@ pub struct AppOpts {
   pub receipt_max_per_user_per_sender: usize,
   #[clap(long, env, default_value = "300")]
   pub receipt_default_expire_seconds: u64,
+
+  #[clap(long, env)]
+  pub admin_src_host: Option<String>,
 }
 
 #[derive(Debug)]
