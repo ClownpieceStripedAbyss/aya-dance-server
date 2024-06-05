@@ -5,7 +5,7 @@ use std::{
 };
 
 use itertools::Either;
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use serde_derive::Deserialize;
 use serde_json::json;
 use warp::{
@@ -159,32 +159,57 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .and_then(
       |_version: String, app: AppService, remote: Option<IpAddr>| async move {
         let _ = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
-        let host = app
+        let hosts = app
           .opts
           .admin_src_host
           .as_ref()
           .ok_or(warp::reject::custom(CustomRejection::AreYouTryingToHackMe))?;
-        // If the host is a valid IP, we will check the remote IP
-        let ip = match host.parse::<IpAddr>() {
-          Ok(ip) => ip,
-          // If it is a hostname?
-          Err(_) => match crate::forward::tokio_util::resolve_host(host).await {
-            Ok(sock) => sock.ip(),
-            Err(e) => {
-              warn!("failed to resolve admin src host {}: {:?}", host, e);
-              return Err(warp::reject::custom(CustomRejection::AreYouTryingToHackMe));
+        for host in hosts {
+          info!("admin src host: {}", host);
+          // If the host is a valid IP, we will check the remote IP
+          let ip = match host.parse::<IpAddr>() {
+            Ok(ip) => Some(ip),
+            // If it is a hostname? `resolve_host` needs a socket address, so give it a port
+            Err(_) => {
+              match crate::forward::tokio_util::resolve_host(format!("{}:11451", host)).await {
+                Ok(sock) => Some(sock.ip()),
+                Err(e) => {
+                  warn!(
+                    "failed to resolve admin src host {}: {:?}, trying next one",
+                    host, e
+                  );
+                  continue;
+                }
+              }
             }
-          },
-        };
-        if Some(ip) != remote {
-          return Err(warp::reject::custom(CustomRejection::AreYouTryingToHackMe));
+          };
+
+          if ip == remote {
+            info!(
+              "remote IP matches admin src host: remote={:?}, admin={:?}",
+              remote, ip
+            );
+            info!("admin says to rebuild the index, yes sir! admin={:?}", ip);
+            match app.index.get_index(true).await {
+              Ok(_) => info!("Index built"),
+              Err(e) => warn!("Failed to clear index: {:?}", e),
+            }
+            return Ok::<_, Rejection>(
+              warp::reply::json(&json!({"message": "ok"})).into_response(),
+            );
+          } else {
+            warn!(
+              "remote IP does not match admin src host: remote={:?}, admin={:?}",
+              remote, ip
+            );
+          }
         }
-        info!("admin says to rebuild the index, yes sir! admin={}", ip);
-        match app.index.get_index(true).await {
-          Ok(_) => info!("Index built"),
-          Err(e) => warn!("Failed to clear index: {:?}", e),
-        }
-        Ok::<_, Rejection>(warp::reply::json(&json!({"message": "ok"})).into_response())
+
+        error!(
+          "someone is trying to clear the index without permission! remote={:?}",
+          remote
+        );
+        return Err(warp::reject::custom(CustomRejection::AreYouTryingToHackMe));
       },
     );
 

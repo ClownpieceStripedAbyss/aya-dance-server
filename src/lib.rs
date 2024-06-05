@@ -46,8 +46,8 @@ pub struct AppOpts {
   #[clap(long, env, default_value = "300")]
   pub receipt_default_expire_seconds: u64,
 
-  #[clap(long, env)]
-  pub admin_src_host: Option<String>,
+  #[clap(long, env, value_delimiter = ',')]
+  pub admin_src_host: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
