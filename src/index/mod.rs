@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+pub use aya_dance_types::SongIndex;
 use itertools::Itertools;
 use log::{debug, warn};
-use serde_derive::Serialize;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -16,12 +16,6 @@ pub mod watch;
 pub struct IndexServiceImpl {
   pub video_path: String,
   pub index: Mutex<Option<SongIndex>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SongIndex {
-  pub updated_at: i64,
-  pub categories: Vec<Category>,
 }
 
 pub type IndexService = Arc<IndexServiceImpl>;

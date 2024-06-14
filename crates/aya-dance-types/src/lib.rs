@@ -50,3 +50,9 @@ pub struct Category {
   pub title: String,
   pub entries: Vec<Song>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SongIndex {
+  pub updated_at: i64,
+  pub categories: Vec<Category>,
+}
