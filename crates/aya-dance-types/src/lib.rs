@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 pub type SongId = u32;
@@ -55,4 +56,43 @@ pub struct Category {
 pub struct SongIndex {
   pub updated_at: i64,
   pub categories: Vec<Category>,
+}
+
+pub fn songs_to_index(mut songs: Vec<Song>) -> SongIndex {
+  // Make sure it is sorted by id
+  songs.sort_by_key(|s| s.id);
+
+  let mut pypy_categories = songs
+    .clone()
+    .into_iter()
+    // `chunk_by` only works on sorted data.
+    .sorted_by_key(|s| s.category_name.clone())
+    .chunk_by(|s| s.category_name.clone())
+    .into_iter()
+    .map(|(category_name, songs)| Category {
+      title: category_name,
+      // Now, sort each group by song id
+      entries: songs.sorted_by_key(|s| s.id).collect(),
+    })
+    .sorted_by_key(|c| c.title.clone())
+    .collect::<Vec<_>>();
+
+  let mut categories = vec![];
+  categories.push(Category {
+    title: "All Songs".to_string(),
+    entries: songs.clone(),
+  });
+  categories.push(Category {
+    title: "Song's Family".to_string(),
+    entries: songs
+      .iter()
+      .filter(|s| s.title.contains("[Song]"))
+      .cloned()
+      .collect(),
+  });
+  categories.append(&mut pypy_categories);
+  SongIndex {
+    updated_at: chrono::Utc::now().timestamp(),
+    categories,
+  }
 }
