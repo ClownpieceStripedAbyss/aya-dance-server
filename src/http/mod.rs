@@ -232,20 +232,30 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .index
           .get_index(false)
           .await
-          .map_err(|_| warp::reject::custom(CustomRejection::IndexNotReady))?;
-        // `.unwrap()` always returns a value, so we can use it safely
-        let matches = index
-          .categories
-          .first()
-          .unwrap()
-          .entries
-          .iter()
-          .filter(|s| s.original_url.contains(&original_url))
-          .collect::<Vec<_>>();
-        let location = match matches.as_slice() {
-          [song] => format!("/api/v1/videos/{}.mp4", song.id),
+          .map_err(|_| warp::reject::custom(CustomRejection::IndexNotReady));
+
+        let location = match index {
+          // If we have an index, try to forward the request to our own server
+          Ok(index) => {
+            // `.unwrap()` always returns a value, so we can use it safely
+            let matches = index
+              .categories
+              .first()
+              .unwrap()
+              .entries
+              .iter()
+              .filter(|s| s.original_url.contains(&original_url))
+              .collect::<Vec<_>>();
+            // If there's only one match, forward to our own server
+            match matches.as_slice() {
+              [song] => format!("/api/v1/videos/{}.mp4", song.id),
+              _ => format!("http://storage-kr1.llss.io/{}.mp4", hash_mp4),
+            }
+          }
+          // If the index is not ready, just give it to jd.pypy.moe
           _ => format!("http://storage-kr1.llss.io/{}.mp4", hash_mp4),
         };
+
         Ok::<_, Rejection>(
           warp::http::Response::builder()
             .status(StatusCode::FOUND)
