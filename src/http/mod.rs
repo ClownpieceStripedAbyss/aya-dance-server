@@ -46,7 +46,6 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
-  // Video gateway: https://base-url/api/v1/videos/{id}.mp4
   let aya_videos = warp::get()
     .and(warp::path!("api" / String / "videos" / String))
     .and(with_service(&app))
@@ -84,7 +83,6 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
-  // Video files gateway: https://base-url/resources/{id}.mp4?auth=<token>
   let aya_video_files = warp::get()
     .and(warp::path!("v" / String))
     .and(warp::path::end())
@@ -133,7 +131,6 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
-  // Song metadata index: https://base-url/api/v1/aya/songs
   let aya_song_index_get = warp::get()
     .and(warp::path!("aya-api" / String / "songs"))
     .and(with_service(&app))
@@ -221,7 +218,44 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .or(aya_videos)
     .or(aya_video_files);
 
-  let pypy = warp::path!("api" / ..)
+  // https://base-url/{44l921COILc.mp4}
+  let pypy_video_file = warp::path!(String)
+    .and(warp::path::end())
+    .and(with_service(&app))
+    .and(real_ip())
+    .and_then(
+      |hash_mp4: String, app: AppService, remote: Option<IpAddr>| async move {
+        let hash_mp4 = hash_mp4.trim_end_matches(".mp4").to_string();
+        let _remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        let original_url = format!("https://www.youtube.com/watch?v={}", hash_mp4);
+        let index = app
+          .index
+          .get_index(false)
+          .await
+          .map_err(|_| warp::reject::custom(CustomRejection::IndexNotReady))?;
+        // `.unwrap()` always returns a value, so we can use it safely
+        let matches = index
+          .categories
+          .first()
+          .unwrap()
+          .entries
+          .iter()
+          .filter(|s| s.original_url.contains(&original_url))
+          .collect::<Vec<_>>();
+        let location = match matches.as_slice() {
+          [song] => format!("/api/v1/videos/{}.mp4", song.id),
+          _ => format!("http://storage-kr1.llss.io/{}.mp4", hash_mp4),
+        };
+        Ok::<_, Rejection>(
+          warp::http::Response::builder()
+            .status(StatusCode::FOUND)
+            .header(warp::http::header::LOCATION, location.clone())
+            .body(location),
+        )
+      },
+    );
+
+  let pypy_other_api = warp::path!("api" / ..)
     .and(warp::path::full())
     .and(warp::get())
     .and(with_service(&app))
@@ -237,6 +271,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .body(location),
       )
     });
+
+  let pypy = pypy_video_file.or(pypy_other_api);
 
   // Typewriter gateway
   let typewriter = warp::get()

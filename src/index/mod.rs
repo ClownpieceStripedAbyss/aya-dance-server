@@ -2,14 +2,10 @@ use std::sync::Arc;
 
 use aya_dance_types::songs_to_index;
 pub use aya_dance_types::SongIndex;
-use itertools::Itertools;
 use log::{debug, warn};
 use tokio::sync::Mutex;
 
-use crate::{
-  types::{Category, Song},
-  Result,
-};
+use crate::{types::Song, Result};
 
 pub mod watch;
 
