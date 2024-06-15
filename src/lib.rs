@@ -29,7 +29,7 @@ pub type Result<T> = anyhow::Result<T>;
 pub struct AppOpts {
   #[clap(short = 'r', long, env, default_value = "redis://127.0.0.1:6379")]
   pub redis_url: String,
-  #[clap(short = 'x', long, env, default_value = "false")]
+  #[clap(short = 'x', long, env, default_value = "true")]
   pub no_auth: bool,
   #[clap(short = 'v', long, env, default_value = "./pypydance-song")]
   pub video_path: String,
