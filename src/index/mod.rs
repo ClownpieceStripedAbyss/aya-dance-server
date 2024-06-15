@@ -77,6 +77,14 @@ impl IndexServiceImpl {
               continue;
             }
           };
+          if song.id.to_string() != path.file_name().unwrap_or_default().to_string_lossy() {
+            warn!(
+              "Song id mismatch: {} (directory) != {} (metadata), skipping",
+              path.file_name().unwrap().to_string_lossy(),
+              song.id
+            );
+            continue;
+          }
           songs.push(song);
         }
       }
