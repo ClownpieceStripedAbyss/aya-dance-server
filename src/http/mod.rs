@@ -255,6 +255,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           // If the index is not ready, just give it to jd.pypy.moe
           _ => format!("http://storage-kr1.llss.io/{}.mp4", hash_mp4),
         };
+        
+        info!("FWD {} -> {}", hash_mp4, location);
 
         Ok::<_, Rejection>(
           warp::http::Response::builder()
