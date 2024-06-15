@@ -33,13 +33,13 @@ pub struct AppOpts {
   pub no_auth: bool,
   #[clap(short = 'v', long, env, default_value = "./pypydance-song")]
   pub video_path: String,
-  #[clap(short = 'l', long, env, default_value = "[::]:80")]
+  #[clap(short = 'l', long, env, default_value = "0.0.0.0:80")]
   pub listen: String,
   #[clap(short = '3', long, env)]
   pub builtin_l3_listen: Option<String>,
   #[clap(short = 'f', long, env, default_value = "jd-orig.kiva.moe:443")]
   pub builtin_l3_forward: String,
-  #[clap(short = 'w', long, env, default_value = "[::]:7991")]
+  #[clap(short = 'w', long, env, default_value = "0.0.0.0:7991")]
   pub rtsp_listen: String,
   #[clap(long, env, default_value = "5")]
   pub receipt_max_per_user_per_sender: usize,
