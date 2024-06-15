@@ -66,7 +66,7 @@ impl AppServiceImpl {
   pub async fn new(opts: AppOpts) -> Result<AppService> {
     let redis = match opts.no_auth {
       true => {
-        info!("Authentication disabled: skipping redis initialization");
+        info!("Authentication disabled");
         None
       }
       false => {
