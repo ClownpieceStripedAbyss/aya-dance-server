@@ -255,7 +255,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           // If the index is not ready, just give it to jd.pypy.moe
           _ => format!("http://storage-kr1.llss.io/{}.mp4", hash_mp4),
         };
-        
+
         info!("FWD {} -> {}", hash_mp4, location);
 
         Ok::<_, Rejection>(
@@ -299,7 +299,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .parse::<SongId>()
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
         let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
-        // TODO: support song dance ID, the current implementation uses ID from PyPy for testing.
+        // TODO: support song dance ID, the current implementation uses ID from PyPy for
+        // testing.
         let serve = app
           .cdn
           .serve_token(id, remote)
@@ -323,7 +324,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             .header(warp::http::header::LOCATION, location.clone())
             .body(location),
         )
-      }
+      },
     );
 
   // https://api.udon.dance/Api/..
@@ -343,7 +344,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .body(location),
       )
     });
-  
+
   let song_dance = song_dance_play.or(song_dance_other_api);
 
   // Typewriter gateway

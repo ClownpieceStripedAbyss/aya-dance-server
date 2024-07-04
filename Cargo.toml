@@ -30,6 +30,9 @@ warp-real-ip = "0.2.0"
 notify = "6.1.1"
 uuid = { version = "1.8.0", features = ["v4", "fast-rng"] }
 rtsp-types = "0.1.1"
+time = "0.3.36"
+pin-project = "1.1.5"
+byteorder = "1.5.0"
 
 redis = { version = "0.23.3", features = ["tokio-comp", "serde_json", "serde", "json"] }
 bb8 = "0.8.1"
