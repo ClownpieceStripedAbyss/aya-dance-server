@@ -26,8 +26,8 @@ pub struct TargetData {
 
 const BUFFER_SIZE: usize = 8192;
 
-pub async fn process_generic_stream(
-  mut source_stream: Box<TcpStream>,
+pub async fn process_generic_stream<T: AsyncStream>(
+  mut source_stream: Box<T>,
   addr: &std::net::SocketAddr,
   target_data: Arc<TargetData>,
 ) -> std::io::Result<()> {

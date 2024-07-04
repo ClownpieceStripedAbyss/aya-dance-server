@@ -24,10 +24,11 @@ async fn main() {
 
   let http = tokio::spawn(pypy_cdn::http::serve_video_http(app.clone()));
   let rtsp = tokio::spawn(pypy_cdn::rtsp::serve_rtsp_typewriter(app.clone()));
-  let l3 = match &opts.builtin_l3_listen {
+  let l4 = match &opts.builtin_l3_listen {
     Some(listen) => tokio::spawn(pypy_cdn::forward::serve_l4_forward(
       listen.clone(),
       opts.builtin_l3_forward,
+      opts.builtin_l3_forward_ud,
     )),
     None => {
       info!("No L4 forwarding configured");
@@ -36,7 +37,7 @@ async fn main() {
   };
 
   tokio::select! {
-      e = l3, if opts.builtin_l3_listen.is_some() => {
+      e = l4, if opts.builtin_l3_listen.is_some() => {
           match e {
               Ok(Ok(_)) => info!("L4 Forward exited successfully"),
               Ok(Err(e)) => warn!("L4 Forward exited with error: {}", e),

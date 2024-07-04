@@ -9,6 +9,8 @@ use std::{
 };
 use std::{net::SocketAddr, sync::Arc};
 
+use anyhow::anyhow;
+use async_trait::async_trait;
 use byteorder::{ByteOrder, NetworkEndian};
 use log::debug;
 use pin_project::pin_project;
@@ -18,17 +20,17 @@ use tokio::{
   pin, time,
 };
 
-use crate::forward::{tcp, tcp::TargetData};
+use crate::forward::{async_stream::AsyncStream, tcp, tcp::TargetData};
 
-pub struct SniMapper {
-  pub host_mappings: std::collections::HashMap<String, Arc<TargetData>>,
+pub struct SniMap {
+  pub host_mappings: std::collections::HashMap<String, (String, Arc<TargetData>)>,
 }
 
-async fn sni_proxy(
-  mapper: &SniMapper,
+pub async fn sni_proxy(
+  sni_map: Arc<SniMap>,
   mut client_stream: TcpStream,
   client_socket: SocketAddr,
-) -> io::Result<()> {
+) -> crate::Result<()> {
   // Read SNI hostname.
   let mut recording_reader = RecordingBufReader::new(&mut client_stream);
   let reader = HandshakeRecordReader::new(&mut recording_reader);
@@ -41,28 +43,23 @@ async fn sni_proxy(
   let read_buf = recording_reader.buf();
 
   // Determine server hostname from SNI hostname.
-  let server_host = mapper.host_mappings.get(&sni_hostname).ok_or_else(|| {
+  let (server_host, forward) = sni_map.host_mappings.get(&sni_hostname).ok_or_else(|| {
     Error::new(
       ErrorKind::InvalidData,
       format!("unknown SNI hostname: {}", sni_hostname),
     )
   })?;
 
-  tokio::spawn(async move {
-    // remember to send TLS handshake bytes to the server as well
-    let client_stream = PrefixedReaderWriter::new(client_stream, read_buf);
-    if let Err(e) =
-      tcp::process_generic_stream(Box::new(client_stream), &client_socket, server_host.clone())
-        .await
-    {
-      debug!(
-        "L4 TCP+SNI forward for {:?} ({}) exited: {:?}",
-        &client_socket, &sni_hostname, e
-      );
-    }
-  });
+  debug!(
+    "L4 SNI forward for {:?} ({}) -> {:?}",
+    &client_socket, &sni_hostname, server_host
+  );
 
-  Ok(())
+  // remember to send TLS handshake bytes to the server as well
+  let client_stream = PrefixedReaderWriter::new(client_stream, read_buf);
+  tcp::process_generic_stream(Box::new(client_stream), &client_socket, forward.clone())
+    .await
+    .map_err(|e| anyhow!("(SNI {}) {:?}", &sni_hostname, e))
 }
 
 #[pin_project]
@@ -122,7 +119,7 @@ impl<R: AsyncRead> AsyncRead for RecordingBufReader<R> {
 }
 
 #[pin_project]
-struct PrefixedReaderWriter<T: AsyncRead + AsyncWrite> {
+pub struct PrefixedReaderWriter<T: AsyncRead + AsyncWrite> {
   #[pin]
   inner: T,
   prefix: Vec<u8>,
@@ -168,19 +165,26 @@ impl<T: AsyncRead + AsyncWrite> AsyncWrite for PrefixedReaderWriter<T> {
     self: Pin<&mut Self>,
     cx: &mut Context<'_>,
     buf: &[u8],
-  ) -> Poll<Result<usize, std::io::Error>> {
+  ) -> Poll<Result<usize, Error>> {
     let this = self.project();
     this.inner.poll_write(cx, buf)
   }
 
-  fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
+  fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
     let this = self.project();
     this.inner.poll_flush(cx)
   }
 
-  fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
+  fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
     let this = self.project();
     this.inner.poll_shutdown(cx)
+  }
+}
+
+#[async_trait]
+impl<T: AsyncStream> AsyncStream for PrefixedReaderWriter<T> {
+  async fn try_shutdown(self) -> io::Result<()> {
+    self.inner.try_shutdown().await
   }
 }
 
