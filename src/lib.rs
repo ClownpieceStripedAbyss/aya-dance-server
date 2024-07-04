@@ -39,6 +39,8 @@ pub struct AppOpts {
   pub builtin_l3_listen: Option<String>,
   #[clap(short = 'f', long, env, default_value = "jd-orig.kiva.moe:443")]
   pub builtin_l3_forward: String,
+  #[clap(short = 'f', long, env, default_value = "ud-orig.kiva.moe:443")]
+  pub builtin_l3_forward_ud: String,
   #[clap(short = 'w', long, env, default_value = "0.0.0.0:7991")]
   pub rtsp_listen: String,
   #[clap(long, env, default_value = "5")]
