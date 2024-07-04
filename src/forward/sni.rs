@@ -51,7 +51,7 @@ pub async fn sni_proxy(
   })?;
 
   debug!(
-    "L4 SNI forward for {:?} ({}) -> {}",
+    "L4 SNI proxy for {:?} ({}) -> {}",
     &client_socket, &sni_hostname, server_host
   );
 
