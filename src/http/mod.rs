@@ -286,6 +286,66 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
 
   let pypy = pypy_video_file.or(pypy_other_api);
 
+  // http://api.udon.dance/Api/Songs/play?id=1021
+  let song_dance_play = warp::path!("Api" / "Songs" / "play")
+    .and(warp::query::<HashMap<String, String>>())
+    .and(with_service(&app))
+    .and(real_ip())
+    .and_then(
+      |query: HashMap<String, String>, app: AppService, remote: Option<IpAddr>| async move {
+        let id = query
+          .get("id")
+          .ok_or(warp::reject::custom(CustomRejection::BadVideoId))?
+          .parse::<SongId>()
+          .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
+        let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        // TODO: support song dance ID, the current implementation uses ID from PyPy for testing.
+        let serve = app
+          .cdn
+          .serve_token(id, remote)
+          .await
+          .map_err(|_| warp::reject::custom(CustomRejection::NoServeToken))?;
+        let location = match serve {
+          CdnFetchResult::Miss => {
+            // Not found in our CDN, let's redirect to api.udon.dance
+            format!("https://api.udon.dance/Api/Songs/play?id={}", id)
+          }
+          CdnFetchResult::Hit(token) => {
+            // Found in our CDN, let's redirect to the resource gateway.
+            // Note: in prior versions, we used the format `{token}.mp4`,
+            // which turned out it's not caching-friendly.
+            format!("/v/{}.mp4?auth={}", id, token)
+          }
+        };
+        Ok::<_, Rejection>(
+          warp::http::Response::builder()
+            .status(StatusCode::FOUND)
+            .header(warp::http::header::LOCATION, location.clone())
+            .body(location),
+        )
+      }
+    );
+
+  // https://api.udon.dance/Api/..
+  let song_dance_other_api = warp::path!("Api" / ..)
+    .and(warp::path::full())
+    .and(warp::get())
+    .and(with_service(&app))
+    .and_then(|full: FullPath, _app: AppService| async move {
+      let path = format!("{}", full.as_str());
+      debug!("GET {}", path);
+      // Redirect to https://api.udon.dance
+      let location = format!("https://api.udon.dance{}", path);
+      Ok::<_, Rejection>(
+        warp::http::Response::builder()
+          .status(StatusCode::FOUND)
+          .header(warp::http::header::LOCATION, location.clone())
+          .body(location),
+      )
+    });
+  
+  let song_dance = song_dance_play.or(song_dance_other_api);
+
   // Typewriter gateway
   let typewriter = warp::get()
     .and(warp::path!("typewriter" / String))
@@ -385,6 +445,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
 
   // Ok, let's run the server
   let routes = aya
+    .or(song_dance)
     .or(pypy)
     .or(typewriter)
     .or(receipt)
