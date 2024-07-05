@@ -24,22 +24,20 @@ pub async fn serve_l4_forward(
   let socket = listen
     .parse::<SocketAddr>()
     .expect("Failed to parse listen address");
-  let (location_jd, target_jd) = to_location(&forward_jd);
-  let (location_ud, target_ud) = to_location(&forward_ud);
+  let (_, target_jd) = to_location(&forward_jd);
+  let (_, target_ud) = to_location(&forward_ud);
 
   let mut host_mappings = std::collections::HashMap::new();
   host_mappings.insert("jd.pypy.moe".to_string(), (forward_jd, target_jd));
   host_mappings.insert("api.udon.dance".to_string(), (forward_ud, target_ud));
   let sni_map = Arc::new(sni::SniMap { host_mappings });
-
-  info!(
-    "L4 SNI forward {} {} -> {}",
-    socket, "jd.pypy.moe", location_jd
-  );
-  info!(
-    "L4 SNI forward {} {} -> {}",
-    socket, "api.udon.dance", location_ud
-  );
+  
+  for (host, (forward, _)) in &sni_map.host_mappings {
+    info!(
+      "L4 SNI proxy {} {} -> {}",
+      socket, host, forward
+    );
+  }
 
   loop {
     // Currently no QUIC support, we only support TCP
