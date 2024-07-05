@@ -17,6 +17,7 @@ async fn main() {
 
   info!("aya-dance: starting daemon");
   info!("video path: {}", opts.video_path);
+  info!("video path: {}", opts.video_path_ud);
 
   let app = AppServiceImpl::new(opts.clone())
     .await
