@@ -58,7 +58,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .parse::<SongId>()
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
         let serve = app
-          .cdn
+          .cdn_jd
           .serve_token(id, remote)
           .await
           .map_err(|_| warp::reject::custom(CustomRejection::NoServeToken))?;
@@ -71,7 +71,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
-            format!("/v/{}.mp4?auth={}", id, token)
+            format!("/v/{}.mp4?auth={}&t=jd", id, token)
           }
         };
         Ok::<_, Rejection>(
@@ -111,7 +111,11 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             return Err(warp::reject::custom(CustomRejection::BadToken));
           }
         };
-        let video_file = match app.cdn.serve_file(Some(id), token, remote.clone()).await {
+        let backing_cdn = match qs.get("t") {
+          Some(t) if t == "ud" => &app.cdn_ud,
+          _ => &app.cdn_jd,
+        };
+        let video_file = match backing_cdn.serve_file(Some(id), token, remote.clone()).await {
           Ok(Some(video_file)) => video_file,
           Ok(None) => {
             warn!(
@@ -299,10 +303,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .parse::<SongId>()
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
         let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
-        // TODO: support song dance ID, the current implementation uses ID from PyPy for
-        // testing.
         let serve = app
-          .cdn
+          .cdn_ud
           .serve_token(id, remote)
           .await
           .map_err(|_| warp::reject::custom(CustomRejection::NoServeToken))?;
@@ -315,7 +317,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
-            format!("/v/{}.mp4?auth={}", id, token)
+            format!("/v/{}.mp4?auth={}&t=ud", id, token)
           }
         };
         Ok::<_, Rejection>(

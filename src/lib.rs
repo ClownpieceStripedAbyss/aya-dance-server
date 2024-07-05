@@ -33,6 +33,8 @@ pub struct AppOpts {
   pub no_auth: bool,
   #[clap(short = 'v', long, env, default_value = "./pypydance-song")]
   pub video_path: String,
+  #[clap(long, env, default_value = "./udondance-song")]
+  pub video_path_ud: String,
   #[clap(short = 'l', long, env, default_value = "0.0.0.0:80")]
   pub listen: String,
   #[clap(short = '3', long, env)]
@@ -57,7 +59,8 @@ pub struct AppServiceImpl {
   pub opts: AppOpts,
   pub redis: Option<RedisService>,
   pub typewriter: TypewriterService,
-  pub cdn: CdnService,
+  pub cdn_jd: CdnService,
+  pub cdn_ud: CdnService,
   pub index: IndexService,
   pub receipt: ReceiptService,
 }
@@ -76,7 +79,8 @@ impl AppServiceImpl {
         Some(RedisServiceImpl::new(opts.redis_url.clone()).await?)
       }
     };
-    let cdn = CdnServiceImpl::new(opts.video_path.clone(), redis.clone());
+    let cdn_jd = CdnServiceImpl::new(opts.video_path.clone(), redis.clone());
+    let cdn_ud = CdnServiceImpl::new(opts.video_path_ud.clone(), redis.clone());
     let typewriter = Arc::new(TypewriterServiceImpl::default());
     let index = IndexServiceImpl::new(opts.video_path.clone()).await?;
     let receipt = ReceiptServiceImpl::new(
@@ -87,7 +91,8 @@ impl AppServiceImpl {
     Ok(Arc::new(AppServiceImpl {
       opts,
       redis,
-      cdn,
+      cdn_jd,
+      cdn_ud,
       typewriter,
       index,
       receipt,
