@@ -127,7 +127,7 @@ impl CdnServiceImpl {
     if is_member && is_valid {
       Ok(self.get_video_file_path(id_in_token).await)
     } else {
-      return Err(anyhow!("token expired"));
+      Err(anyhow!("token expired"))
     }
   }
 
