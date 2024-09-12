@@ -45,6 +45,7 @@ bb8-redis = "0.13.1"
 
 aya-dance-types = { path = "./crates/aya-dance-types" }
 async-stream = "0.3.5"
+md5 = "0.7.0"
 
 [dev-dependencies]
 mock_instant = "0.3.0"

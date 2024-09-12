@@ -346,7 +346,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .body(location),
       )
     });
-  
+
   // https://play.udon.dance/files/2403/1-660524b46664a.mp4?e=b03f9584f49350599d6d641d74b0b547&s=13959733
   let song_dance_play_cache = warp::path!("files" / String / String)
     .and(warp::path::end())
@@ -368,12 +368,12 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .ok_or_else(|| warp::reject::custom(CustomRejection::BadToken))?
           .parse::<u64>().map_err(|_| warp::reject::custom(CustomRejection::BadToken))?;
 
-        let (cache_file, available) = app.cdn_ud.serve_local_cache(id, file.clone(), e.clone(), s, remote).await;
+        let (cache_file, metadata_json, available) = app.cdn_ud.serve_local_cache(id, e.clone(), s, remote).await;
         match available {
           true => {
             info!("[HIT] Cache file for song {} found: serving {}", id, cache_file);
             crate::cdn::range::get_range(range, &cache_file, "video/mp4").await
-          },
+          }
           _ => {
             info!("[MISS] Cache file {} not found or not usable: re-caching", cache_file);
             crate::cdn::proxy::proxy_and_inspecting(
@@ -382,13 +382,13 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               headers,
               body,
               Some("play.udon.dance".to_string()),
-              Some((cache_file, s)),
+              Some((id, cache_file, metadata_json, e.clone(), s)),
             ).await
           }
         }
       },
     );
-  
+
   let song_dance = song_dance_play
     .or(song_dance_play_cache)
     .or(song_dance_other_api);
@@ -451,7 +451,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
                 "message": "missing song id or url",
                 "receipt": null,
               }))
-              .into_response(),
+                .into_response(),
             )
           }
         };
@@ -474,7 +474,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
                 "message": format,
                 "receipt": null,
               }))
-              .into_response(),
+                .into_response(),
             );
           }
         };
@@ -483,7 +483,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             "message": "ok",
             "receipt": receipt,
           }))
-          .into_response(),
+            .into_response(),
         )
       },
     );
@@ -528,7 +528,7 @@ async fn handle_rejection(e: Rejection) -> Result<impl Reply, Infallible> {
 
 pub fn with_service(
   service: &AppService,
-) -> impl Filter<Extract = (AppService,), Error = Infallible> + Clone {
+) -> impl Filter<Extract=(AppService,), Error=Infallible> + Clone {
   let service = service.clone();
   warp::any().map(move || service.clone())
 }
@@ -550,7 +550,7 @@ pub fn cors() -> warp::cors::Builder {
     .allow_methods(vec!["GET", "POST", "OPTIONS", "PUT", "DELETE"])
 }
 
-pub fn real_ip() -> impl Filter<Extract = (Option<IpAddr>,), Error = Infallible> + Clone {
+pub fn real_ip() -> impl Filter<Extract=(Option<IpAddr>,), Error=Infallible> + Clone {
   remote().and(get_forwarded_for()).map(
     move |addr: Option<SocketAddr>, forwarded_for: Vec<IpAddr>| {
       addr.map(|addr| forwarded_for.first().copied().unwrap_or(addr.ip()))

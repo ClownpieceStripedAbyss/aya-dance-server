@@ -50,14 +50,11 @@ macro_rules! redis_get {
 }
 
 impl CdnServiceImpl {
-  pub async fn get_video_file_path(&self, id: SongId) -> Option<String> {
+  pub async fn get_video_file_path(&self, id: SongId) -> (String, String, bool) {
     let metadata_json = format!("{}/{}/metadata.json", self.video_path, id);
     let video_mp4 = format!("{}/{}/video.mp4", self.video_path, id);
-    if std::path::Path::new(&metadata_json).exists() && std::path::Path::new(&video_mp4).exists() {
-      Some(video_mp4)
-    } else {
-      None
-    }
+    let available = std::path::Path::new(&metadata_json).exists() && std::path::Path::new(&video_mp4).exists();
+    (video_mp4, metadata_json, available)
   }
 
   pub async fn serve_file(
@@ -69,16 +66,17 @@ impl CdnServiceImpl {
     match token {
       Some(token) => self.serve_file_auth(id, token, remote).await,
       None => {
-        self
+        let (video, _, avail) = self
           .serve_file_no_auth(id.ok_or_else(|| anyhow!("missing song id"))?)
-          .await
+          .await;
+        Ok(avail.then(|| video))
       }
     }
   }
 
-  pub async fn serve_file_no_auth(&self, id: SongId) -> Result<Option<String>> {
+  pub async fn serve_file_no_auth(&self, id: SongId) -> (String, String, bool) {
     debug!("serve_file_no_auth: id={}", id);
-    Ok(self.get_video_file_path(id).await)
+    self.get_video_file_path(id).await
   }
 
   pub async fn serve_file_auth(
@@ -128,7 +126,8 @@ impl CdnServiceImpl {
     };
 
     if is_member && is_valid {
-      Ok(self.get_video_file_path(id_in_token).await)
+      let (video, _, avail) = self.get_video_file_path(id_in_token).await;
+      Ok(avail.then(|| video))
     } else {
       Err(anyhow!("token expired"))
     }
@@ -138,9 +137,10 @@ impl CdnServiceImpl {
     debug!("serve_token: id={}, client={}", id, remote);
     let token = token_for_song_id(id);
 
-    match self.get_video_file_path(id).await {
+    let (_, _, avail) = self.get_video_file_path(id).await;
+    match avail {
       // Now if the file exists, we can generate a token for the client.
-      Some(_) => {
+      true => {
         if let Some(redis) = &self.redis {
           let tokens_set = format!("cdn_token_set:{}:{}", id, remote);
           let token_valid = format!("cdn_token_valid:{}", token);
@@ -162,15 +162,35 @@ impl CdnServiceImpl {
         Ok(CdnFetchResult::Hit(token))
       }
       // Otherwise, return a miss.
-      None => Ok(CdnFetchResult::Miss),
+      false => Ok(CdnFetchResult::Miss),
     }
   }
 
-  pub async fn serve_local_cache(&self, _id: SongId, file: String, _md5: String, size: u64, _remote: IpAddr) -> (String, bool) {
-    let cache_file = format!("{}/{}", self.cache_path, file);
-    match std::fs::metadata(&cache_file) {
-      Ok(m) if m.len() == size => (cache_file, true),
-      _ => (cache_file, false),
+  pub async fn serve_local_cache(&self, id: SongId, md5: String, size: u64, _remote: IpAddr) -> (String, String, bool) {
+    let (video, metadata_json, avail) = self.get_video_file_path(id).await;
+    if !avail {
+      return (video, metadata_json, false);
+    }
+    if std::fs::metadata(&video).map(|x| x.len()).unwrap_or(0) != size {
+      return (video, metadata_json, false);
+    }
+    let reader = match std::fs::File::open(&metadata_json) {
+      Ok(f) => f,
+      Err(e) => {
+        log::warn!("Failed to open metadata file {}: {}", metadata_json, e);
+        return (video, metadata_json, false);
+      }
+    };
+    let x: aya_dance_types::Song = match serde_json::from_reader(reader) {
+      Ok(x) => x,
+      Err(e) => {
+        log::warn!("Failed to parse metadata file {}: {}", metadata_json, e);
+        return (video, metadata_json, false);
+      }
+    };
+    match x.checksum {
+      Some(x) if x == md5 =>(video, metadata_json, true),
+      _ => (video, metadata_json, false),
     }
   }
 }
