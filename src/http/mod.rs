@@ -367,15 +367,22 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         let s = query.get("s")
           .ok_or_else(|| warp::reject::custom(CustomRejection::BadToken))?
           .parse::<u64>().map_err(|_| warp::reject::custom(CustomRejection::BadToken))?;
-        match app.cdn_ud.serve_local_cache(id, file.clone(), e.clone(), s, remote).await {
-          Some(f) => crate::cdn::range::get_range(range, &f, "video/mp4").await,
-          None => {
-            crate::cdn::proxy::proxy_to_and_forward_response(
+
+        let (cache_file, available) = app.cdn_ud.serve_local_cache(id, file.clone(), e.clone(), s, remote).await;
+        match available {
+          true => {
+            info!("[HIT] Cache file for song {} found: serving {}", id, cache_file);
+            crate::cdn::range::get_range(range, &cache_file, "video/mp4").await
+          },
+          _ => {
+            info!("[MISS] Cache file {} not found or not usable: re-caching", cache_file);
+            crate::cdn::proxy::proxy_and_inspecting(
               format!("http://{}/files/{}/{}?e={}&s={}", &app.opts.cache_upstream_ud, date, file, e, s),
               reqwest::Method::GET,
               headers,
               body,
               Some("play.udon.dance".to_string()),
+              Some(cache_file),
             ).await
           }
         }

@@ -166,11 +166,11 @@ impl CdnServiceImpl {
     }
   }
 
-  pub async fn serve_local_cache(&self, _id: SongId, file: String, _md5: String, size: u64, _remote: IpAddr) -> Option<String> {
+  pub async fn serve_local_cache(&self, _id: SongId, file: String, _md5: String, size: u64, _remote: IpAddr) -> (String, bool) {
     let cache_file = format!("{}/{}", self.cache_path, file);
     match std::fs::metadata(&cache_file) {
-      Ok(m) if m.len() == size => Some(cache_file),
-      _ => None,
+      Ok(m) if m.len() == size => (cache_file, true),
+      _ => (cache_file, false),
     }
   }
 }
