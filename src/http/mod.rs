@@ -368,7 +368,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .ok_or_else(|| warp::reject::custom(CustomRejection::BadToken))?
           .parse::<u64>().map_err(|_| warp::reject::custom(CustomRejection::BadToken))?;
 
-        let (cache_file, metadata_json, available) = app.cdn_ud.serve_local_cache(id, e.clone(), s, remote).await;
+        let (download_tmp, cache_file, metadata_json, available) = app.cdn_ud.serve_local_cache(id, file.clone(), e.clone(), s, remote).await;
         match available {
           true => {
             info!("[HIT] Cache file for song {} found: serving {}", id, cache_file);
@@ -382,7 +382,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               headers,
               body,
               Some("play.udon.dance".to_string()),
-              Some((id, cache_file, metadata_json, e.clone(), s)),
+              Some((id, download_tmp, cache_file, metadata_json, e.clone(), s)),
             ).await
           }
         }

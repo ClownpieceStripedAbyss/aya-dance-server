@@ -166,31 +166,32 @@ impl CdnServiceImpl {
     }
   }
 
-  pub async fn serve_local_cache(&self, id: SongId, md5: String, size: u64, _remote: IpAddr) -> (String, String, bool) {
+  pub async fn serve_local_cache(&self, id: SongId, file: String, md5: String, size: u64, _remote: IpAddr) -> (String, String, String, bool) {
+    let download_tmp_file = format!("{}/{}", self.cache_path, file);
     let (video, metadata_json, avail) = self.get_video_file_path(id).await;
     if !avail {
-      return (video, metadata_json, false);
+      return (download_tmp_file, video, metadata_json, false);
     }
     if std::fs::metadata(&video).map(|x| x.len()).unwrap_or(0) != size {
-      return (video, metadata_json, false);
+      return (download_tmp_file, video, metadata_json, false);
     }
     let reader = match std::fs::File::open(&metadata_json) {
       Ok(f) => f,
       Err(e) => {
         log::warn!("Failed to open metadata file {}: {}", metadata_json, e);
-        return (video, metadata_json, false);
+        return (download_tmp_file, video, metadata_json, false);
       }
     };
     let x: aya_dance_types::Song = match serde_json::from_reader(reader) {
       Ok(x) => x,
       Err(e) => {
         log::warn!("Failed to parse metadata file {}: {}", metadata_json, e);
-        return (video, metadata_json, false);
+        return (download_tmp_file, video, metadata_json, false);
       }
     };
     match x.checksum {
-      Some(x) if x == md5 =>(video, metadata_json, true),
-      _ => (video, metadata_json, false),
+      Some(x) if x == md5 =>(download_tmp_file, video, metadata_json, true),
+      _ => (download_tmp_file, video, metadata_json, false),
     }
   }
 }

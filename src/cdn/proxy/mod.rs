@@ -24,7 +24,7 @@ pub async fn proxy_and_inspecting(
   headers: warp::http::HeaderMap,
   body: Bytes,
   host_override: Option<String>,
-  dump_file: Option<(SongId, String, String, String, u64)>,
+  dump_file: Option<(SongId, String, String, String, String, u64)>,
 ) -> Result<warp::http::Response<Body>, Rejection> {
   let mut hdr = reqwest::header::HeaderMap::new();
   for (k, v) in headers.iter() {
@@ -65,7 +65,7 @@ pub async fn proxy_and_inspecting(
 /// Converts a reqwest response into a http::Response
 async fn response_to_reply(
   response: reqwest::Response,
-  dump_file: Option<(SongId, String, String, String, u64)>,
+  dump_file: Option<(SongId, String, String, String, String, u64)>,
 ) -> Result<warp::http::Response<Body>, errors::Error> {
   let mut builder = warp::http::Response::builder();
   for (k, v) in response.headers().iter() {
@@ -76,22 +76,24 @@ async fn response_to_reply(
   let status = response.status();
   let byte_stream = response.bytes_stream();
   let body = match dump_file {
-    Some((id, dump_file, metadata_json, etag, expected_size)) => {
+    Some((id, download_tmp, dump_file, metadata_json, etag, expected_size)) => {
       // create parent directories if not exist
-      if let Some(parent) = std::path::Path::new(&dump_file).parent() {
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-          log::warn!("Failed to create parent directories for cache file {}: {}", dump_file, e);
+      for file in [&dump_file, &download_tmp, &metadata_json] {
+        if let Some(parent) = std::path::Path::new(file).parent() {
+          if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            log::warn!("Failed to create parent directories for file {}: {}", file, e);
+          }
         }
       }
       // open file for dumping
       match tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open(dump_file.clone())
+        .open(download_tmp.clone())
         .await {
-        Ok(file) => inspecting(id, expected_size, dump_file, metadata_json, byte_stream, file, etag),
+        Ok(file) => inspecting(id, expected_size, download_tmp, dump_file, metadata_json, byte_stream, file, etag),
         Err(e) => {
-          log::warn!("Failed to open file {} for caching: {}", dump_file, e);
+          log::warn!("Failed to open file {} for caching: {}", download_tmp, e);
           Body::wrap_stream(byte_stream)
         }
       }
@@ -107,6 +109,7 @@ async fn response_to_reply(
 fn inspecting(
   id: SongId,
   expected_size: u64,
+  download_tmp: String,
   dump_file: String,
   metadata_json: String,
   mut byte_stream: impl Stream<Item=Result<Bytes, reqwest::Error>> + Unpin + Send + 'static,
@@ -131,7 +134,7 @@ fn inspecting(
                 log::debug!("Wrote {}/{} ({:.2}%) bytes to cache file {}",
                   total_written, expected_size,
                   total_written as f64 / expected_size as f64 * 100.0,
-                  dump_file
+                  download_tmp
                 );
                 if total_written >= expected_size {
                   let elapsed = start_time.elapsed().as_secs_f64();
@@ -139,18 +142,18 @@ fn inspecting(
                   log::info!("Finished fetching {} ({}) to cache file {}",
                     to_human_readable_size(expected_size),
                     to_human_readable_speed(speed),
-                    dump_file
+                    download_tmp
                   );
                   match file.sync_all().await {
-                    Ok(_) => match generate_fake_metadata(id, &metadata_json, &dump_file, &etag).await {
+                    Ok(_) => match publish_to_local_videos(id, &metadata_json, &dump_file, &download_tmp, &etag).await {
                       Ok(_) => log::info!("Successfully generated metadata for cache file {}", dump_file),
-                      Err(e) => log::warn!("Failed to generate metadata for cache file {}: {}", dump_file, e),
+                      Err(e) => log::warn!("Failed to activate cache file {}: {}", download_tmp, e),
                     }
-                    Err(e) => log::warn!("Failed to sync cache file {}: {}", dump_file, e),
+                    Err(e) => log::warn!("Failed to sync cache file {}: {}", download_tmp, e),
                   }
                 }
               }
-              Err(e) => log::warn!("Failed to write to cache file {}: {}", dump_file, e),
+              Err(e) => log::warn!("Failed to write to cache file {}: {}", download_tmp, e),
             }
           }
           yield bytes;
@@ -160,16 +163,17 @@ fn inspecting(
   })
 }
 
-async fn generate_fake_metadata(
+async fn publish_to_local_videos(
   id: SongId,
   metadata_json: &String, 
   dump_file: &String, 
+  download_tmp: &String,
   etag: &String,
 ) -> anyhow::Result<()> {
-  let md5 = md5::compute(tokio::fs::read(dump_file).await?);
+  let md5 = md5::compute(tokio::fs::read(download_tmp).await?);
   let md5 = hex::encode(md5.as_slice());
   if &md5 != etag {
-    return Err(anyhow::anyhow!("Checksum mismatch for file {}: expected {}, got {}", dump_file, etag, md5));
+    return Err(anyhow::anyhow!("Checksum mismatch for file {}: expected {}, got {}", download_tmp, etag, md5));
   }
   
   let metadata = aya_dance_types::Song {
@@ -188,9 +192,12 @@ async fn generate_fake_metadata(
     checksum: Some(etag.clone()),
   };
   
+  std::fs::rename(download_tmp, dump_file)
+    .map_err(|e| anyhow::anyhow!("Failed to rename cache file {} to {}: {}", download_tmp, dump_file, e))?;
   let json = serde_json::to_string_pretty(&metadata)?;
-  Ok(tokio::fs::write(metadata_json, json).await
-    .map_err(|e| anyhow::anyhow!("Failed to write metadata file {}: {}", metadata_json, e))?)
+  tokio::fs::write(metadata_json, json).await
+    .map_err(|e| anyhow::anyhow!("Failed to write metadata file {}: {}", metadata_json, e))?;
+  Ok(())
 }
 
 fn default_reqwest_client() -> reqwest::Client {
