@@ -75,7 +75,7 @@ async fn response_to_reply(
     builder = builder.header(kk, vv);
   }
   let status = response.status();
-  let mut byte_stream = response.bytes_stream();
+  let byte_stream = response.bytes_stream();
   let body = match dump_file {
     Some((dump_file, expected_size)) => {
       // create parent directories if not exist
@@ -90,47 +90,7 @@ async fn response_to_reply(
         .create(true)
         .open(dump_file.clone())
         .await {
-        Ok(mut file) => Body::wrap_stream(async_stream::stream! {
-          let mut total_written = 0u64;
-          let start_time = std::time::Instant::now();
-          loop {
-            tokio::select! {
-              Some(bytes) = byte_stream.next() => {
-                match &bytes {
-                  Err(e) => {
-                    log::warn!("Failed to read from response stream: {}", e);
-                    break;
-                  }
-                  Ok(bytes) => match file.write_all(&bytes).await {
-                    Ok(_) => {
-                      let len = bytes.len();
-                      total_written += len as u64;
-                      log::debug!("Wrote {}/{} ({:.2}%) bytes to cache file {}",
-                        total_written, expected_size,
-                        total_written as f64 / expected_size as f64 * 100.0,
-                        dump_file
-                      );
-                      if total_written >= expected_size {
-                        let elapsed = start_time.elapsed().as_secs_f64();
-                        let speed = total_written as f64 / elapsed;
-                        log::info!("Finished fetching {} ({}) to cache file {}",
-                          to_human_readable_size(expected_size),
-                          to_human_readable_speed(speed),
-                          dump_file
-                        );
-                        if let Err(e) = file.sync_all().await {
-                          log::warn!("Failed to sync cache file {}: {}", dump_file, e);
-                        }
-                      }
-                    }
-                    Err(e) => log::warn!("Failed to write to cache file {}: {}", dump_file, e),
-                  }
-                }
-                yield bytes;
-              }
-            }
-          }
-        }),
+        Ok(file) => inspecting(expected_size, dump_file, byte_stream, file),
         Err(e) => {
           log::warn!("Failed to open file {} for caching: {}", dump_file, e);
           Body::wrap_stream(byte_stream)
@@ -143,6 +103,55 @@ async fn response_to_reply(
     .status(status.as_u16())
     .body(body)
     .map_err(errors::Error::Http)
+}
+
+fn inspecting(
+  expected_size: u64,
+  dump_file: String,
+  mut byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Unpin + Send + 'static,
+  mut file: File,
+) -> Body {
+  Body::wrap_stream(async_stream::stream! {
+    let mut total_written = 0u64;
+    let start_time = std::time::Instant::now();
+    loop {
+      tokio::select! {
+        Some(bytes) = byte_stream.next() => {
+          match &bytes {
+            Err(e) => {
+              log::warn!("Failed to read from response stream: {}", e);
+              break;
+            }
+            Ok(bytes) => match file.write_all(&bytes).await {
+              Ok(_) => {
+                let len = bytes.len();
+                total_written += len as u64;
+                log::debug!("Wrote {}/{} ({:.2}%) bytes to cache file {}",
+                  total_written, expected_size,
+                  total_written as f64 / expected_size as f64 * 100.0,
+                  dump_file
+                );
+                if total_written >= expected_size {
+                  let elapsed = start_time.elapsed().as_secs_f64();
+                  let speed = total_written as f64 / elapsed;
+                  log::info!("Finished fetching {} ({}) to cache file {}",
+                    to_human_readable_size(expected_size),
+                    to_human_readable_speed(speed),
+                    dump_file
+                  );
+                  if let Err(e) = file.sync_all().await {
+                    log::warn!("Failed to sync cache file {}: {}", dump_file, e);
+                  }
+                }
+              }
+              Err(e) => log::warn!("Failed to write to cache file {}: {}", dump_file, e),
+            }
+          }
+          yield bytes;
+        }
+      }
+    }
+  })
 }
 
 fn default_reqwest_client() -> reqwest::Client {
