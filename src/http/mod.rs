@@ -89,7 +89,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .and(warp::query::<HashMap<String, String>>())
     .and(with_service(&app))
     .and(real_ip())
-    .and(warp_range::filter_range())
+    .and(crate::cdn::range::filter_range())
     .and_then(
       |id_mp4: String,
        qs: HashMap<String, String>,
@@ -131,7 +131,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         };
 
         debug!("serving file: {:?}, client={}", video_file, remote);
-        warp_range::get_range(range, video_file.as_str(), "video/mp4").await
+        crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await
       },
     );
 
@@ -346,8 +346,45 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .body(location),
       )
     });
-
-  let song_dance = song_dance_play.or(song_dance_other_api);
+  
+  // https://play.udon.dance/files/2403/1-660524b46664a.mp4?e=b03f9584f49350599d6d641d74b0b547&s=13959733
+  let song_dance_play_cache = warp::path!("files" / String / String)
+    .and(warp::path::end())
+    .and(warp::query::<HashMap<String, String>>())
+    .and(with_service(&app))
+    .and(real_ip())
+    .and(crate::cdn::range::filter_range())
+    .and(warp::header::headers_cloned())
+    .and(warp::body::bytes())
+    .and_then(
+      |date: String, file: String, query: HashMap<String, String>, app: AppService, remote: Option<IpAddr>, range: Option<String>,
+       headers: warp::http::HeaderMap, body: bytes::Bytes| async move {
+        let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        let id = file.split('-').next()
+          .ok_or_else(|| warp::reject::custom(CustomRejection::BadVideoId))?
+          .parse::<SongId>().map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
+        let e = query.get("e").ok_or_else(|| warp::reject::custom(CustomRejection::BadToken))?;
+        let s = query.get("s")
+          .ok_or_else(|| warp::reject::custom(CustomRejection::BadToken))?
+          .parse::<u64>().map_err(|_| warp::reject::custom(CustomRejection::BadToken))?;
+        match app.cdn_ud.serve_local_cache(id, file.clone(), e.clone(), s, remote).await {
+          Some(f) => crate::cdn::range::get_range(range, &f, "video/mp4").await,
+          None => {
+            crate::cdn::proxy::proxy_to_and_forward_response(
+              format!("http://{}/files/{}/{}?e={}&s={}", &app.opts.cache_upstream_ud, date, file, e, s),
+              reqwest::Method::GET,
+              headers,
+              body,
+              Some("play.udon.dance".to_string()),
+            ).await
+          }
+        }
+      },
+    );
+  
+  let song_dance = song_dance_play
+    .or(song_dance_play_cache)
+    .or(song_dance_other_api);
 
   // Typewriter gateway
   let typewriter = warp::get()

@@ -35,6 +35,12 @@ pub struct AppOpts {
   pub video_path: String,
   #[clap(long, env, default_value = "./udondance-song")]
   pub video_path_ud: String,
+  #[clap(long, env, default_value = "./pypydance-cache")]
+  pub cache_path_jd: String,
+  #[clap(long, env, default_value = "./wannadance-cache")]
+  pub cache_path_ud: String,
+  #[clap(long, env, default_value = "ud-play.kiva.moe")]
+  pub cache_upstream_ud: String,
   #[clap(short = 'l', long, env, default_value = "0.0.0.0:80")]
   pub listen: String,
   #[clap(short = '3', long, env)]
@@ -79,8 +85,8 @@ impl AppServiceImpl {
         Some(RedisServiceImpl::new(opts.redis_url.clone()).await?)
       }
     };
-    let cdn_jd = CdnServiceImpl::new(opts.video_path.clone(), redis.clone());
-    let cdn_ud = CdnServiceImpl::new(opts.video_path_ud.clone(), redis.clone());
+    let cdn_jd = CdnServiceImpl::new(opts.video_path.clone(), opts.cache_path_jd.clone(), redis.clone());
+    let cdn_ud = CdnServiceImpl::new(opts.video_path_ud.clone(), opts.cache_path_ud.clone(), redis.clone());
     let typewriter = Arc::new(TypewriterServiceImpl::default());
     let index = IndexServiceImpl::new(opts.video_path.clone()).await?;
     let receipt = ReceiptServiceImpl::new(

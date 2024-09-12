@@ -12,10 +12,13 @@ use crate::{
 };
 
 pub mod receipt;
+pub mod proxy;
+pub mod range;
 
 #[derive(Debug)]
 pub struct CdnServiceImpl {
   pub video_path: String,
+  pub cache_path: String,
   pub redis: Option<RedisService>,
 }
 
@@ -23,8 +26,8 @@ pub type CdnService = Arc<CdnServiceImpl>;
 pub type CdnFetchToken = UuidString;
 
 impl CdnServiceImpl {
-  pub fn new(video_path: String, redis: Option<RedisService>) -> CdnService {
-    Arc::new(CdnServiceImpl { video_path, redis })
+  pub fn new(video_path: String, cache_path: String, redis: Option<RedisService>) -> CdnService {
+    Arc::new(CdnServiceImpl { video_path, cache_path, redis })
   }
 }
 
@@ -160,6 +163,14 @@ impl CdnServiceImpl {
       }
       // Otherwise, return a miss.
       None => Ok(CdnFetchResult::Miss),
+    }
+  }
+
+  pub async fn serve_local_cache(&self, _id: SongId, file: String, _md5: String, size: u64, _remote: IpAddr) -> Option<String> {
+    let cache_file = format!("{}/{}", self.cache_path, file);
+    match std::fs::metadata(&cache_file) {
+      Ok(m) if m.len() == size => Some(cache_file),
+      _ => None,
     }
   }
 }
