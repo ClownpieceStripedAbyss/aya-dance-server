@@ -382,7 +382,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               headers,
               body,
               Some("play.udon.dance".to_string()),
-              Some(cache_file),
+              Some((cache_file, s)),
             ).await
           }
         }
