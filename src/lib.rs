@@ -40,7 +40,9 @@ pub struct AppOpts {
   #[clap(long, env, default_value = "./wannadance-cache")]
   pub cache_path_ud: String,
   #[clap(long, env, default_value = "ud-play.kiva.moe")]
-  pub cache_upstream_ud: String,
+  pub cache_upstream_ud_oversea: String,
+  #[clap(long, env, default_value = "ud-nya.kiva.moe")]
+  pub cache_upstream_ud_domestic: String,
   #[clap(short = 'l', long, env, default_value = "0.0.0.0:80")]
   pub listen: String,
   #[clap(short = '3', long, env)]

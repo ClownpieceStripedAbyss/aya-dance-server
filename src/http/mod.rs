@@ -375,13 +375,21 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             crate::cdn::range::get_range(range, &cache_file, "video/mp4").await
           }
           _ => {
-            info!("[MISS] Cache file {} not found or not usable: re-caching", cache_file);
+            let (upstream_dns, host_override) = match headers.get(warp::http::header::HOST).map(|x| x.to_str().ok()).flatten() {
+              Some("nya.xin.moe") => (&app.opts.cache_upstream_ud_domestic, "nya.xin.moe".to_string()),
+              _ => (&app.opts.cache_upstream_ud_oversea, "play.udon.dance".to_string()),
+            };
+            info!("[MISS] Cache file {} miss: re-caching via {} (Host: {})", 
+              cache_file, 
+              upstream_dns,
+              host_override
+            );
             crate::cdn::proxy::proxy_and_inspecting(
-              format!("http://{}/files/{}/{}?e={}&s={}", &app.opts.cache_upstream_ud, date, file, e, s),
+              format!("http://{}/files/{}/{}?e={}&s={}", upstream_dns, date, file, e, s),
               reqwest::Method::GET,
               headers,
               body,
-              Some("play.udon.dance".to_string()),
+              Some(host_override),
               Some((id, download_tmp, cache_file, metadata_json, e.clone(), s)),
             ).await
           }
