@@ -105,15 +105,15 @@ async fn response_to_reply(
                     Ok(_) => {
                       let len = bytes.len();
                       total_written += len as u64;
-                      log::debug!("Wrote {}/{} ({:.2}%) bytes to cache file {}", 
-                        total_written, expected_size, 
+                      log::debug!("Wrote {}/{} ({:.2}%) bytes to cache file {}",
+                        total_written, expected_size,
                         total_written as f64 / expected_size as f64 * 100.0,
                         dump_file
                       );
                       if total_written >= expected_size {
                         let elapsed = start_time.elapsed().as_secs_f64();
                         let speed = total_written as f64 / elapsed;
-                        log::info!("Finished fetching {} ({}) to cache file {}", 
+                        log::info!("Finished fetching {} ({}) to cache file {}",
                           to_human_readable_size(expected_size),
                           to_human_readable_speed(speed),
                           dump_file
