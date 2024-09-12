@@ -42,7 +42,7 @@ pub struct Song {
   #[serde(rename = "skipRandom")]
   pub skip_random: bool,
   #[serde(rename = "originalUrl")]
-  pub original_url: Vec<String>,
+  pub original_url: Option<Vec<String>>,
   pub checksum: Option<String>,
 }
 

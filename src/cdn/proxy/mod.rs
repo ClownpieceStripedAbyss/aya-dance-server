@@ -184,7 +184,7 @@ async fn generate_fake_metadata(
     end: 0,
     flip: false,
     skip_random: false,
-    original_url: vec![],
+    original_url: None,
     checksum: Some(etag.clone()),
   };
   

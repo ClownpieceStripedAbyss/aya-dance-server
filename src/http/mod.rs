@@ -248,7 +248,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               .unwrap()
               .entries
               .iter()
-              .filter(|s| s.original_url.contains(&original_url))
+              .filter(|s| s.original_url.as_ref().map(|x| x.contains(&original_url)).unwrap_or(false))
               .collect::<Vec<_>>();
             // If there's only one match, forward to our own server
             match matches.as_slice() {
