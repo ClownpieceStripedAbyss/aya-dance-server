@@ -15,7 +15,7 @@ async fn main() {
 
   let opts = AppOpts::parse();
 
-  info!("aya-dance: starting daemon");
+  info!("WannaDance: starting daemon");
   info!("video path: {}", opts.video_path);
   info!("video path: {}", opts.video_path_ud);
 
@@ -24,7 +24,13 @@ async fn main() {
     .expect("Failed to initialize app service");
 
   let http = tokio::spawn(pypy_cdn::http::serve_video_http(app.clone()));
-  let rtsp = tokio::spawn(pypy_cdn::rtsp::serve_rtsp_typewriter(app.clone()));
+  let rtsp = match opts.rtsp_enable {
+    true => tokio::spawn(pypy_cdn::rtsp::serve_rtsp_typewriter(app.clone())),
+    false => {
+      info!("RTSP disabled");
+      tokio::task::spawn(async { Ok(()) })
+    }
+  };
   let l4 = match &opts.builtin_l3_listen {
     Some(listen) => tokio::spawn(pypy_cdn::forward::serve_l4_forward(
       listen.clone(),
@@ -45,7 +51,7 @@ async fn main() {
               Err(e) => warn!("L4 Forward exited with error: {}", e),
           }
       },
-      e = rtsp => {
+      e = rtsp, if opts.rtsp_enable => {
           match e {
               Ok(Ok(_)) => info!("RTSP exited successfully"),
               Ok(Err(e)) => warn!("RTSP exited with error: {}", e),

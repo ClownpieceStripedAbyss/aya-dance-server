@@ -53,6 +53,8 @@ pub struct AppOpts {
   pub builtin_l3_forward_ud: String,
   #[clap(short = 'w', long, env, default_value = "0.0.0.0:7991")]
   pub rtsp_listen: String,
+  #[clap(long, env, default_value = "false")]
+  pub rtsp_enable: bool,
   #[clap(long, env, default_value = "5")]
   pub receipt_max_per_user_per_sender: usize,
   #[clap(long, env, default_value = "300")]
