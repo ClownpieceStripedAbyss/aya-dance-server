@@ -25,6 +25,8 @@ pub mod types;
 
 pub type Result<T> = anyhow::Result<T>;
 
+pub const MY_VERSION_ID: u32 = 1;
+
 #[derive(Debug, Parser, Clone)]
 pub struct AppOpts {
   #[clap(short = 'r', long, env, default_value = "redis://127.0.0.1:6379")]
