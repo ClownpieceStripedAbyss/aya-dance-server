@@ -1,5 +1,5 @@
 [package]
-name = "pypy-cdn"
+name = "wanna-cdn"
 version = "0.1.0"
 edition = "2021"
 

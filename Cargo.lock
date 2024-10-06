@@ -1391,49 +1391,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pypy-cdn"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-stream",
- "async-trait",
- "aya-dance-types",
- "bb8",
- "bb8-redis",
- "byteorder",
- "bytes",
- "chrono",
- "clap",
- "dotenvy",
- "env_logger",
- "futures",
- "hex",
- "itertools",
- "log",
- "md5",
- "mock_instant",
- "notify",
- "once_cell",
- "pin-project",
- "rand",
- "redis",
- "reqwest",
- "rtsp-types",
- "serde",
- "serde_derive",
- "serde_json",
- "thiserror",
- "time",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "uuid",
- "vergen",
- "warp",
- "warp-real-ip",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2304,6 +2261,49 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
+]
+
+[[package]]
+name = "wanna-cdn"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "aya-dance-types",
+ "bb8",
+ "bb8-redis",
+ "byteorder",
+ "bytes",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "env_logger",
+ "futures",
+ "hex",
+ "itertools",
+ "log",
+ "md5",
+ "mock_instant",
+ "notify",
+ "once_cell",
+ "pin-project",
+ "rand",
+ "redis",
+ "reqwest",
+ "rtsp-types",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "uuid",
+ "vergen",
+ "warp",
+ "warp-real-ip",
 ]
 
 [[package]]

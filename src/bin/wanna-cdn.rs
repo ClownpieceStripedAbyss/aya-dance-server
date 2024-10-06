@@ -1,6 +1,6 @@
 use clap::Parser;
 use log::{info, warn};
-use pypy_cdn::{AppOpts, AppServiceImpl};
+use wanna_cdn::{AppOpts, AppServiceImpl};
 
 #[tokio::main]
 async fn main() {
@@ -15,7 +15,7 @@ async fn main() {
 
   let opts = AppOpts::parse();
 
-  info!("WannaDance: starting daemon");
+  info!("WannaDance: starting daemon, version {}", wanna_cdn::my_git_hash());
   info!("video path: {}", opts.video_path);
   info!("video path: {}", opts.video_path_ud);
 
@@ -23,16 +23,16 @@ async fn main() {
     .await
     .expect("Failed to initialize app service");
 
-  let http = tokio::spawn(pypy_cdn::http::serve_video_http(app.clone()));
+  let http = tokio::spawn(wanna_cdn::http::serve_video_http(app.clone()));
   let rtsp = match opts.rtsp_enable {
-    true => tokio::spawn(pypy_cdn::rtsp::serve_rtsp_typewriter(app.clone())),
+    true => tokio::spawn(wanna_cdn::rtsp::serve_rtsp_typewriter(app.clone())),
     false => {
       info!("RTSP disabled");
       tokio::task::spawn(async { Ok(()) })
     }
   };
   let l4 = match &opts.builtin_l3_listen {
-    Some(listen) => tokio::spawn(pypy_cdn::forward::serve_l4_forward(
+    Some(listen) => tokio::spawn(wanna_cdn::forward::serve_l4_forward(
       listen.clone(),
       opts.builtin_l3_forward,
       opts.builtin_l3_forward_ud,

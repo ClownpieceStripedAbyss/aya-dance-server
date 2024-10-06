@@ -16,7 +16,7 @@ RUN apt-get install -y --no-install-recommends \
 WORKDIR /builder
 COPY . .
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release --package pypy-cdn
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release --package wanna-cdn
 
 FROM debian:bookworm-slim
 ARG DEBIAN_FRONTEND=noninteractive
@@ -28,10 +28,10 @@ RUN apt-get install -y --no-install-recommends \
   && rm -rf /tmp/* /var/tmp/*
 
 WORKDIR /app
-COPY --from=builder /builder/target/release/pypy-cdn .
+COPY --from=builder /builder/target/release/wanna-cdn .
 
 ENV RUST_LOG=info
 
-LABEL org.opencontainers.image.source https://github.com/ClownpieceStripedAbyss/pypy-cdn
+LABEL org.opencontainers.image.source https://github.com/ClownpieceStripedAbyss/aya-dance-server
 
-CMD /app/pypy-cdn
+CMD /app/wanna-cdn

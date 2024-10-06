@@ -393,7 +393,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               Some(format!(
                 "WannaDanceSelfHostedCDN/{}.{}",
                 crate::MY_VERSION_ID,
-                option_env!("VERGEN_GIT_SHA").map(|x| x[..8].to_string()).unwrap_or_else(|| "0".to_string())
+                crate::my_git_hash(),
               )),
               Some((id, download_tmp, cache_file, metadata_json, e.clone(), s)),
             ).await

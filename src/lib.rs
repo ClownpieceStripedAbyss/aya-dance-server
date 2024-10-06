@@ -111,3 +111,7 @@ impl AppServiceImpl {
     }))
   }
 }
+
+pub fn my_git_hash() -> String {
+  option_env!("VERGEN_GIT_SHA").map(|x| x[..8].to_string()).unwrap_or_else(|| "0".to_string())
+}
