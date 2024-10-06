@@ -390,6 +390,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               headers,
               body,
               Some(host_override),
+              Some(format!("WannaDanceSelfHostedCDN/{}", option_env!("VERGEN_GIT_SHA").map(|x| x[..8].to_string()).unwrap_or_else(|| "0".to_string()))),
               Some((id, download_tmp, cache_file, metadata_json, e.clone(), s)),
             ).await
           }

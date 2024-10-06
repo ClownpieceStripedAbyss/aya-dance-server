@@ -24,6 +24,7 @@ pub async fn proxy_and_inspecting(
   headers: warp::http::HeaderMap,
   body: Bytes,
   host_override: Option<String>,
+  user_agent_override: Option<String>,
   dump_file: Option<(SongId, String, String, String, String, u64)>,
 ) -> Result<warp::http::Response<Body>, Rejection> {
   let mut hdr = reqwest::header::HeaderMap::new();
@@ -34,6 +35,12 @@ pub async fn proxy_and_inspecting(
         hdr.insert(
           reqwest::header::HOST,
           reqwest::header::HeaderValue::from_str(host_override.as_ref().unwrap()).unwrap(),
+        );
+      }
+      "user-agent" if user_agent_override.is_some() => {
+        hdr.insert(
+          reqwest::header::USER_AGENT,
+          reqwest::header::HeaderValue::from_str(format!("{} {}", v.to_str().unwrap(), user_agent_override.as_ref().unwrap()).as_str()).unwrap(),
         );
       }
       _ => {

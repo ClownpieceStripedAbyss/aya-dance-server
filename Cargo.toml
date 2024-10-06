@@ -3,6 +3,8 @@ name = "pypy-cdn"
 version = "0.1.0"
 edition = "2021"
 
+build = "build.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -49,3 +51,6 @@ md5 = "0.7.0"
 
 [dev-dependencies]
 mock_instant = "0.3.0"
+
+[build-dependencies]
+vergen = { version = "8.3.2", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }
