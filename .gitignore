@@ -152,3 +152,4 @@ graphql*.sdl*
 # End of https://www.toptal.com/developers/gitignore/api/macos,rust,jetbrains+iml
 
 wannadance-cache/
+wannadance-song/
