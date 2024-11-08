@@ -177,9 +177,9 @@ impl CdnServiceImpl {
     file: String,
     md5: String,
     size: u64,
-    _remote: IpAddr,
+    remote: std::net::SocketAddr,
   ) -> (String, String, String, bool) {
-    let download_tmp_file = format!("{}/{}", self.cache_path, file);
+    let download_tmp_file = format!("{}/{}_{}", self.cache_path, remote.port(), file);
     let (video, metadata_json, avail) = self.get_video_file_path(id).await;
     if !avail {
       return (download_tmp_file, video, metadata_json, false);

@@ -289,6 +289,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .and(warp::query::<HashMap<String, String>>())
     .and(with_service(&app))
     .and(real_ip())
+    .and(remote())
     .and(crate::cdn::range::filter_range())
     .and(warp::header::headers_cloned())
     .and(warp::body::bytes())
@@ -297,11 +298,13 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
        file: String,
        query: HashMap<String, String>,
        app: AppService,
-       remote: Option<IpAddr>,
+       real_ip: Option<IpAddr>,
+       remote: Option<SocketAddr>, 
        range: Option<String>,
        headers: warp::http::HeaderMap,
        body: bytes::Bytes| async move {
-        let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        let _real_ip = real_ip.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        let remote = remote.ok_or(warp::reject::custom(CustomRejection::AreYouTryingToHackMe))?;
         let id = file
           .split('-')
           .next()
