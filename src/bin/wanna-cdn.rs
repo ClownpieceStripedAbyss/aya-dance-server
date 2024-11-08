@@ -4,12 +4,59 @@ use clap::Parser;
 use log::{info, warn};
 use wanna_cdn::{AppOpts, AppServiceImpl};
 
+fn print_license() {
+  println!(r#"
+# 使用条款 Term of Use
+
+使用本程序即表示您同意以下条款：
+1. 本程序的允许使用范围：
+   1. 本程序不得用于任何违法、违规、违背道德、攻击、侵犯他人权益、破坏国家安全等行为。
+   2. 本程序不得用于任何商业、盈利、广告等环境。
+   3. 本程序不得用于任何违反 [VRChat] 官方规定的行为。
+   4. 本程序仅限于在 [VRChat] 的 [WannaDance] 及 [WannaDance Dev] 地图中使用，不得用于其他地图。
+   5. 本程序仅限于在个人使用的电脑上使用，不得用于任何具有服务器、云服务器、SaaS 属性的环境。
+   6. 本程序仅限于在个人及家庭环境中使用，不得用于任何公共场所、公共网络、公开提供服务等环境。
+   7. 任何上述没有提及的允许使用范围，均应解释为不允许使用。
+   8. 任何因为不在允许范围内使用本程序导致的任何问题，由实际使用者承担，WannaDance 团队概不负责，也不对此情景提供任何支持。
+2. WannaDance 团队仅对本程序提供合理的免费技术支持，包括：程序的使用、程序的功能、程序的问题、程序的更新。
+3. WannaDance 团队保留对本条款的最终解释权。
+
+[WannaDance]: https://vrchat.com/home/world/wrld_8ac0b9db-17ae-44af-9d20-7d8ab94a9129
+[WannaDance Dev]: https://vrchat.com/home/world/wrld_b9aa3e07-330b-4eb3-8d71-7708c27e86d7
+[VRCat]: https://vrchat.com/
+  "#);
+}
+
+fn check_license_agreement() {
+  // If file "I-AGREE-THE-LICENSE.txt" does not exist, return an error
+  // If environment variable "I_AGREE_THE_LICENSE" is not set, return an error
+
+  let agree_file_exists = std::path::Path::new("I_AGREE_THE_LICENSE.txt").exists();
+  let agree_env_exists = std::env::var("I_AGREE_THE_LICENSE").map(|v| v == "YES").unwrap_or(false);
+
+  if !agree_env_exists && !agree_file_exists {
+    println!("请在使用本程序之前阅读并同意使用条款，可以通过如下途径同意使用条款：");
+    println!("1. 在程序所在目录下创建文件 I_AGREE_THE_LICENSE.txt 以同意使用条款，然后重新启动程序。");
+    println!("2. 如果你在不方便创建文件的环境下使用，请设置环境变量 I_AGREE_THE_LICENSE 为 YES，然后重新启动程序。");
+    println!("   环境变量可以通过以下方式设置：");
+    println!("   1. 通过 Windows/Linux/macOs 系统设置环境变量");
+    println!("   2. 通过程序目录下的 .env 文件设置环境变量");
+
+    loop {
+      std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+  }
+}
+
 #[tokio::main]
 async fn main() {
   match dotenvy::dotenv() {
     Err(e) => warn!("dotenv(): failed to load .env file: {}", e),
     _ => {}
   }
+  
+  print_license();
+  check_license_agreement();
 
   env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
     .filter(Some("warp::server"), log::LevelFilter::Off)
