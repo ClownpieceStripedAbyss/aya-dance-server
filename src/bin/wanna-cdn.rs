@@ -28,16 +28,13 @@ fn print_license() {
 }
 
 fn check_license_agreement() {
-  // If file "I-AGREE-THE-LICENSE.txt" does not exist, return an error
-  // If environment variable "I_AGREE_THE_LICENSE" is not set, return an error
-
-  let agree_file_exists = std::path::Path::new("I_AGREE_THE_LICENSE.txt").exists();
-  let agree_env_exists = std::env::var("I_AGREE_THE_LICENSE").map(|v| v == "YES").unwrap_or(false);
+  let agree_file_exists = std::path::Path::new("I_AGREE_TO_THE_LICENSE.txt").exists();
+  let agree_env_exists = std::env::var("I_AGREE_TO_THE_LICENSE").map(|v| v == "YES").unwrap_or(false);
 
   if !agree_env_exists && !agree_file_exists {
     println!("请在使用本程序之前阅读并同意使用条款，可以通过如下途径同意使用条款：");
-    println!("1. 在程序所在目录下创建文件 I_AGREE_THE_LICENSE.txt 以同意使用条款，然后重新启动程序。");
-    println!("2. 如果你在不方便创建文件的环境下使用，请设置环境变量 I_AGREE_THE_LICENSE 为 YES，然后重新启动程序。");
+    println!("1. 在程序所在目录下创建文件 I_AGREE_TO_THE_LICENSE.txt 以同意使用条款，然后重新启动程序。");
+    println!("2. 如果你在不方便创建文件的环境下使用，请设置环境变量 I_AGREE_TO_THE_LICENSE 为 YES，然后重新启动程序。");
     println!("   环境变量可以通过以下方式设置：");
     println!("   1. 通过 Windows/Linux/macOs 系统设置环境变量");
     println!("   2. 通过程序目录下的 .env 文件设置环境变量");
