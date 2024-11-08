@@ -62,7 +62,7 @@ pub fn songs_to_index(mut songs: Vec<Song>) -> SongIndex {
   // Make sure it is sorted by id
   songs.sort_by_key(|s| s.id);
 
-  let mut pypy_categories = songs
+  let mut original_categories = songs
     .clone()
     .into_iter()
     // `chunk_by` only works on sorted data.
@@ -90,7 +90,7 @@ pub fn songs_to_index(mut songs: Vec<Song>) -> SongIndex {
       .cloned()
       .collect(),
   });
-  categories.append(&mut pypy_categories);
+  categories.append(&mut original_categories);
   SongIndex {
     updated_at: chrono::Utc::now().timestamp(),
     categories,

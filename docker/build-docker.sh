@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PACKAGE_TAG="ghcr.io/clownpiecestripedabyss/pypy-cdn"
+PACKAGE_TAG="ghcr.io/clownpiecestripedabyss/wanna-cdn"
 
 if git rev-parse --git-dir > /dev/null 2>&1; then
     if [[ $NO_DIRTY != '' ]]; then

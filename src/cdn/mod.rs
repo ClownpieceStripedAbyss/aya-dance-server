@@ -11,9 +11,9 @@ use crate::{
   Result,
 };
 
-pub mod receipt;
 pub mod proxy;
 pub mod range;
+pub mod receipt;
 
 #[derive(Debug)]
 pub struct CdnServiceImpl {
@@ -27,7 +27,11 @@ pub type CdnFetchToken = UuidString;
 
 impl CdnServiceImpl {
   pub fn new(video_path: String, cache_path: String, redis: Option<RedisService>) -> CdnService {
-    Arc::new(CdnServiceImpl { video_path, cache_path, redis })
+    Arc::new(CdnServiceImpl {
+      video_path,
+      cache_path,
+      redis,
+    })
   }
 }
 
@@ -53,7 +57,8 @@ impl CdnServiceImpl {
   pub async fn get_video_file_path(&self, id: SongId) -> (String, String, bool) {
     let metadata_json = format!("{}/{}/metadata.json", self.video_path, id);
     let video_mp4 = format!("{}/{}/video.mp4", self.video_path, id);
-    let available = std::path::Path::new(&metadata_json).exists() && std::path::Path::new(&video_mp4).exists();
+    let available =
+      std::path::Path::new(&metadata_json).exists() && std::path::Path::new(&video_mp4).exists();
     (video_mp4, metadata_json, available)
   }
 
@@ -166,7 +171,14 @@ impl CdnServiceImpl {
     }
   }
 
-  pub async fn serve_local_cache(&self, id: SongId, file: String, md5: String, size: u64, _remote: IpAddr) -> (String, String, String, bool) {
+  pub async fn serve_local_cache(
+    &self,
+    id: SongId,
+    file: String,
+    md5: String,
+    size: u64,
+    _remote: IpAddr,
+  ) -> (String, String, String, bool) {
     let download_tmp_file = format!("{}/{}", self.cache_path, file);
     let (video, metadata_json, avail) = self.get_video_file_path(id).await;
     if !avail {
@@ -190,7 +202,7 @@ impl CdnServiceImpl {
       }
     };
     match x.checksum {
-      Some(x) if x == md5 =>(download_tmp_file, video, metadata_json, true),
+      Some(x) if x == md5 => (download_tmp_file, video, metadata_json, true),
       _ => (download_tmp_file, video, metadata_json, false),
     }
   }

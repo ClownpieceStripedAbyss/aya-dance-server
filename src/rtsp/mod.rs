@@ -68,6 +68,8 @@ pub async fn serve_rtsp_typewriter(ctx: AppService) -> anyhow::Result<()> {
   let socket = ctx
     .opts
     .rtsp_listen
+    .clone()
+    .unwrap()
     .parse::<SocketAddr>()
     .expect("Failed to parse listen address");
 

@@ -1,16 +1,17 @@
 pub mod errors;
 
 use std::str::FromStr;
+
+use aya_dance_types::SongId;
 use futures::{Stream, StreamExt};
 use once_cell::sync::OnceCell;
 use reqwest::redirect::Policy;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use warp::filters::path::FullPath;
-use warp::hyper::body::Bytes;
-use warp::hyper::Body;
-use warp::Rejection;
-use aya_dance_types::SongId;
+use tokio::{fs::File, io::AsyncWriteExt};
+use warp::{
+  filters::path::FullPath,
+  hyper::{body::Bytes, Body},
+  Rejection,
+};
 
 pub static CLIENT: OnceCell<reqwest::Client> = OnceCell::new();
 
@@ -40,7 +41,15 @@ pub async fn proxy_and_inspecting(
       "user-agent" if user_agent_override.is_some() => {
         hdr.insert(
           reqwest::header::USER_AGENT,
-          reqwest::header::HeaderValue::from_str(format!("{} {}", v.to_str().unwrap(), user_agent_override.as_ref().unwrap()).as_str()).unwrap(),
+          reqwest::header::HeaderValue::from_str(
+            format!(
+              "{} {}",
+              v.to_str().unwrap(),
+              user_agent_override.as_ref().unwrap()
+            )
+            .as_str(),
+          )
+          .unwrap(),
         );
       }
       _ => {
@@ -63,7 +72,8 @@ pub async fn proxy_and_inspecting(
     .get_or_init(default_reqwest_client)
     .execute(request)
     .await
-    .map_err(errors::Error::Request).map_err(warp::reject::custom)?;
+    .map_err(errors::Error::Request)
+    .map_err(warp::reject::custom)?;
   response_to_reply(response, dump_file)
     .await
     .map_err(warp::reject::custom)
@@ -77,7 +87,10 @@ async fn response_to_reply(
   let mut builder = warp::http::Response::builder();
   for (k, v) in response.headers().iter() {
     let kk = k.to_string();
-    let vv = v.to_str().map_err(|e| errors::Error::String(e.to_string()))?.to_string();
+    let vv = v
+      .to_str()
+      .map_err(|e| errors::Error::String(e.to_string()))?
+      .to_string();
     builder = builder.header(kk, vv);
   }
   let status = response.status();
@@ -88,7 +101,11 @@ async fn response_to_reply(
       for file in [&dump_file, &download_tmp, &metadata_json] {
         if let Some(parent) = std::path::Path::new(file).parent() {
           if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            log::warn!("Failed to create parent directories for file {}: {}", file, e);
+            log::warn!(
+              "Failed to create parent directories for file {}: {}",
+              file,
+              e
+            );
           }
         }
       }
@@ -97,8 +114,18 @@ async fn response_to_reply(
         .write(true)
         .create(true)
         .open(download_tmp.clone())
-        .await {
-        Ok(file) => inspecting(id, expected_size, download_tmp, dump_file, metadata_json, byte_stream, file, etag),
+        .await
+      {
+        Ok(file) => inspecting(
+          id,
+          expected_size,
+          download_tmp,
+          dump_file,
+          metadata_json,
+          byte_stream,
+          file,
+          etag,
+        ),
         Err(e) => {
           log::warn!("Failed to open file {} for caching: {}", download_tmp, e);
           Body::wrap_stream(byte_stream)
@@ -119,7 +146,7 @@ fn inspecting(
   download_tmp: String,
   dump_file: String,
   metadata_json: String,
-  mut byte_stream: impl Stream<Item=Result<Bytes, reqwest::Error>> + Unpin + Send + 'static,
+  mut byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Unpin + Send + 'static,
   mut file: File,
   etag: String,
 ) -> Body {
@@ -172,17 +199,22 @@ fn inspecting(
 
 async fn publish_to_local_videos(
   id: SongId,
-  metadata_json: &String, 
-  dump_file: &String, 
+  metadata_json: &String,
+  dump_file: &String,
   download_tmp: &String,
   etag: &String,
 ) -> anyhow::Result<()> {
   let md5 = md5::compute(tokio::fs::read(download_tmp).await?);
   let md5 = hex::encode(md5.as_slice());
   if &md5 != etag {
-    return Err(anyhow::anyhow!("Checksum mismatch for file {}: expected {}, got {}", download_tmp, etag, md5));
+    return Err(anyhow::anyhow!(
+      "Checksum mismatch for file {}: expected {}, got {}",
+      download_tmp,
+      etag,
+      md5
+    ));
   }
-  
+
   let metadata = aya_dance_types::Song {
     id,
     category: 114514,
@@ -198,11 +230,18 @@ async fn publish_to_local_videos(
     original_url: None,
     checksum: Some(etag.clone()),
   };
-  
-  std::fs::rename(download_tmp, dump_file)
-    .map_err(|e| anyhow::anyhow!("Failed to rename cache file {} to {}: {}", download_tmp, dump_file, e))?;
+
+  std::fs::rename(download_tmp, dump_file).map_err(|e| {
+    anyhow::anyhow!(
+      "Failed to rename cache file {} to {}: {}",
+      download_tmp,
+      dump_file,
+      e
+    )
+  })?;
   let json = serde_json::to_string_pretty(&metadata)?;
-  tokio::fs::write(metadata_json, json).await
+  tokio::fs::write(metadata_json, json)
+    .await
     .map_err(|e| anyhow::anyhow!("Failed to write metadata file {}: {}", metadata_json, e))?;
   Ok(())
 }
@@ -222,7 +261,9 @@ fn to_human_readable_size(size: u64) -> String {
 }
 
 fn to_human_readable_speed(speed: f64) -> String {
-  let units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s", "PB/s", "EB/s", "ZB/s", "YB/s"];
+  let units = [
+    "B/s", "KB/s", "MB/s", "GB/s", "TB/s", "PB/s", "EB/s", "ZB/s", "YB/s",
+  ];
   to_human_readable(speed, &units)
 }
 

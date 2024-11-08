@@ -5,7 +5,7 @@ mod sni;
 mod tcp;
 pub mod tokio_util;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use log::{debug, error, info};
 use tcp::TargetData;
@@ -16,27 +16,23 @@ use crate::forward::{
   tcp::TargetLocationData,
 };
 
-pub async fn serve_l4_forward(
+pub async fn serve_sni_proxy(
   listen: String,
-  forward_jd: String,
-  forward_ud: String,
+  proxy_targets: HashMap<String, String>,
 ) -> anyhow::Result<()> {
   let socket = listen
     .parse::<SocketAddr>()
     .expect("Failed to parse listen address");
-  let (_, target_jd) = to_location(&forward_jd);
-  let (_, target_ud) = to_location(&forward_ud);
 
-  let mut host_mappings = std::collections::HashMap::new();
-  host_mappings.insert("jd.pypy.moe".to_string(), (forward_jd, target_jd));
-  host_mappings.insert("api.udon.dance".to_string(), (forward_ud, target_ud));
+  let mut host_mappings = HashMap::new();
+  for (host, forward_target) in proxy_targets {
+    let (_, target_location) = to_location(&forward_target);
+    host_mappings.insert(host, (forward_target, target_location));
+  }
   let sni_map = Arc::new(sni::SniMap { host_mappings });
-  
+
   for (host, (forward, _)) in &sni_map.host_mappings {
-    info!(
-      "L4 SNI proxy {} {} -> {}",
-      socket, host, forward
-    );
+    info!("L4 SNI proxy {} {} -> {}", socket, host, forward);
   }
 
   loop {
@@ -49,9 +45,9 @@ pub async fn serve_l4_forward(
   }
 }
 
-fn to_location(forward_jd: &String) -> (Location, Arc<TargetData>) {
+fn to_location(forward_target: &String) -> (Location, Arc<TargetData>) {
   let location_jd = Location::Address(
-    NetLocation::try_from(forward_jd.as_str()).expect("Failed to parse forward address"),
+    NetLocation::try_from(forward_target.as_str()).expect("Failed to parse forward address"),
   );
   let target_jd = Arc::new(TargetData {
     location_data: vec![TargetLocationData {

@@ -12,7 +12,7 @@ pub enum Error {
   /// Errors when connecting to the target service
   #[error("Upstream Http error: {0}")]
   Http(#[from] warp::http::Error),
-  
+
   /// Errors when parsing the request
   #[error("{0}")]
   String(String),

@@ -5,10 +5,10 @@ services:
       options:
         max-size: "20m"
         max-file: "10"
-    image: ghcr.io/clownpiecestripedabyss/pypy-cdn:latest
+    image: ghcr.io/clownpiecestripedabyss/wanna-cdn:latest
     env_file: ./docker.env
     volumes:
-      - ./data/song:/pypydance-data
+      - ./data/song:/wannadance-song
     ports:
       - "127.0.0.1:8080:8080"
       - "7991:7991"
