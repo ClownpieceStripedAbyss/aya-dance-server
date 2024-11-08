@@ -26,7 +26,7 @@ pub async fn proxy_and_inspecting(
   body: Bytes,
   host_override: Option<String>,
   user_agent_override: Option<String>,
-  dump_file: Option<(SongId, String, String, String, String, u64)>,
+  dump_opts: Option<(SongId, String, String, String, String, u64)>,
 ) -> Result<warp::http::Response<Body>, Rejection> {
   let mut hdr = reqwest::header::HeaderMap::new();
   for (k, v) in headers.iter() {
@@ -74,7 +74,7 @@ pub async fn proxy_and_inspecting(
     .await
     .map_err(errors::Error::Request)
     .map_err(warp::reject::custom)?;
-  response_to_reply(response, dump_file)
+  response_to_reply(response, dump_opts)
     .await
     .map_err(warp::reject::custom)
 }
@@ -82,7 +82,7 @@ pub async fn proxy_and_inspecting(
 /// Converts a reqwest response into a http::Response
 async fn response_to_reply(
   response: reqwest::Response,
-  dump_file: Option<(SongId, String, String, String, String, u64)>,
+  dump_opts: Option<(SongId, String, String, String, String, u64)>,
 ) -> Result<warp::http::Response<Body>, errors::Error> {
   let mut builder = warp::http::Response::builder();
   for (k, v) in response.headers().iter() {
@@ -95,10 +95,10 @@ async fn response_to_reply(
   }
   let status = response.status();
   let byte_stream = response.bytes_stream();
-  let body = match dump_file {
-    Some((id, download_tmp, dump_file, metadata_json, etag, expected_size)) => {
+  let body = match dump_opts {
+    Some((id, download_tmp, cache_file, metadata_json, etag, expected_size)) => {
       // create parent directories if not exist
-      for file in [&dump_file, &download_tmp, &metadata_json] {
+      for file in [&cache_file, &download_tmp, &metadata_json] {
         if let Some(parent) = std::path::Path::new(file).parent() {
           if let Err(e) = tokio::fs::create_dir_all(parent).await {
             log::warn!(
@@ -120,7 +120,7 @@ async fn response_to_reply(
           id,
           expected_size,
           download_tmp,
-          dump_file,
+          cache_file,
           metadata_json,
           byte_stream,
           file,
@@ -144,7 +144,7 @@ fn inspecting(
   id: SongId,
   expected_size: u64,
   download_tmp: String,
-  dump_file: String,
+  cache_file: String,
   metadata_json: String,
   mut byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Unpin + Send + 'static,
   mut file: File,
@@ -179,8 +179,8 @@ fn inspecting(
                     download_tmp
                   );
                   match file.sync_all().await {
-                    Ok(_) => match publish_to_local_videos(id, &metadata_json, &dump_file, &download_tmp, &etag).await {
-                      Ok(_) => log::info!("Successfully generated metadata for cache file {}", dump_file),
+                    Ok(_) => match publish_to_local_videos(id, &metadata_json, &cache_file, &download_tmp, &etag).await {
+                      Ok(_) => log::info!("Successfully generated metadata for cache file {}", cache_file),
                       Err(e) => log::warn!("Failed to activate cache file {}: {}", download_tmp, e),
                     }
                     Err(e) => log::warn!("Failed to sync cache file {}: {}", download_tmp, e),
@@ -200,7 +200,7 @@ fn inspecting(
 async fn publish_to_local_videos(
   id: SongId,
   metadata_json: &String,
-  dump_file: &String,
+  cache_file: &String,
   download_tmp: &String,
   etag: &String,
 ) -> anyhow::Result<()> {
@@ -231,14 +231,17 @@ async fn publish_to_local_videos(
     checksum: Some(etag.clone()),
   };
 
-  std::fs::rename(download_tmp, dump_file).map_err(|e| {
+  std::fs::copy(download_tmp, cache_file).map_err(|e| {
     anyhow::anyhow!(
-      "Failed to rename cache file {} to {}: {}",
+      "Failed to copy cache file {} to {}: {}",
       download_tmp,
-      dump_file,
+      cache_file,
       e
     )
   })?;
+  if let Err(e) = std::fs::remove_file(download_tmp) {
+    log::warn!("Failed to remove cache file {}: {}", download_tmp, e);
+  }
   let json = serde_json::to_string_pretty(&metadata)?;
   tokio::fs::write(metadata_json, json)
     .await
