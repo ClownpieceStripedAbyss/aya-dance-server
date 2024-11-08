@@ -35,8 +35,8 @@ async fn main() {
       tokio::task::spawn(async { Ok(()) })
     }
   };
-  let l4 = match (&opts.builtin_sni_listen, &opts.builtin_sni_proxy) {
-    (Some(listen), Some(proxy)) if !proxy.is_empty() => {
+  let (l4, l4_enabled) = match (&opts.builtin_sni_listen, &opts.builtin_sni_proxy) {
+    (Some(listen), Some(proxy)) if !proxy.is_empty() && !listen.is_empty() => {
       let mut proxy_targets = HashMap::new();
       for target_def in proxy {
         // api.udon.dance=ud-orig.kiva.moe:443
@@ -45,19 +45,22 @@ async fn main() {
           proxy_targets.insert(host.to_string(), forward_target.to_string());
         }
       }
-      tokio::spawn(wanna_cdn::forward::serve_sni_proxy(
-        listen.clone(),
-        proxy_targets,
-      ))
+      (
+        tokio::spawn(wanna_cdn::forward::serve_sni_proxy(
+          listen.clone(),
+          proxy_targets,
+        )),
+        true,
+      )
     }
     _ => {
       info!("No L4 forwarding configured");
-      tokio::task::spawn(async { Ok(()) })
+      (tokio::task::spawn(async { Ok(()) }), false)
     }
   };
 
   tokio::select! {
-      e = l4, if opts.builtin_sni_listen.is_some() => {
+      e = l4, if l4_enabled => {
           match e {
               Ok(Ok(_)) => info!("L4 Forward exited successfully"),
               Ok(Err(e)) => warn!("L4 Forward exited with error: {}", e),
