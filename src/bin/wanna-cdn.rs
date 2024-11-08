@@ -23,7 +23,7 @@ fn print_license() {
 
 [WannaDance]: https://vrchat.com/home/world/wrld_8ac0b9db-17ae-44af-9d20-7d8ab94a9129
 [WannaDance Dev]: https://vrchat.com/home/world/wrld_b9aa3e07-330b-4eb3-8d71-7708c27e86d7
-[VRCat]: https://vrchat.com/
+[VRChat]: https://vrchat.com/
   "#);
 }
 
