@@ -65,6 +65,9 @@ pub struct AppOpts {
 
   #[clap(long, env, value_delimiter = ',')]
   pub admin_src_host: Option<Vec<String>>,
+
+  #[clap(long, env, default_value = "false")]
+  pub proxy_allow_304: bool,
 }
 
 #[derive(Debug)]

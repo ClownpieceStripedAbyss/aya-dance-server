@@ -5,7 +5,8 @@ use log::{info, warn};
 use wanna_cdn::{AppOpts, AppServiceImpl};
 
 fn print_license() {
-  println!(r#"
+  println!(
+    r#"
 # 使用条款 Term of Use
 
 使用本程序即表示您同意以下条款：
@@ -24,16 +25,21 @@ fn print_license() {
 [WannaDance]: https://vrchat.com/home/world/wrld_8ac0b9db-17ae-44af-9d20-7d8ab94a9129
 [WannaDance Dev]: https://vrchat.com/home/world/wrld_b9aa3e07-330b-4eb3-8d71-7708c27e86d7
 [VRChat]: https://vrchat.com/
-  "#);
+  "#
+  );
 }
 
 fn check_license_agreement() {
   let agree_file_exists = std::path::Path::new("I_AGREE_TO_THE_LICENSE.txt").exists();
-  let agree_env_exists = std::env::var("I_AGREE_TO_THE_LICENSE").map(|v| v == "YES").unwrap_or(false);
+  let agree_env_exists = std::env::var("I_AGREE_TO_THE_LICENSE")
+    .map(|v| v == "YES")
+    .unwrap_or(false);
 
   if !agree_env_exists && !agree_file_exists {
     println!("请在使用本程序之前阅读并同意使用条款，可以通过如下途径同意使用条款：");
-    println!("1. 在程序所在目录下创建文件 I_AGREE_TO_THE_LICENSE.txt 以同意使用条款，然后重新启动程序。");
+    println!(
+      "1. 在程序所在目录下创建文件 I_AGREE_TO_THE_LICENSE.txt 以同意使用条款，然后重新启动程序。"
+    );
     println!("2. 如果你在不方便创建文件的环境下使用，请设置环境变量 I_AGREE_TO_THE_LICENSE 为 YES，然后重新启动程序。");
     println!("   环境变量可以通过以下方式设置：");
     println!("   1. 通过 Windows/Linux/macOs 系统设置环境变量");
@@ -51,7 +57,7 @@ async fn main() {
     Err(e) => warn!("dotenv(): failed to load .env file: {}", e),
     _ => {}
   }
-  
+
   print_license();
   check_license_agreement();
 
@@ -98,7 +104,7 @@ async fn main() {
       )
     }
     _ => {
-      info!("No L4 forwarding configured");
+      info!("No SNI proxy configured");
       (tokio::task::spawn(async { Ok(()) }), false)
     }
   };
@@ -106,9 +112,9 @@ async fn main() {
   tokio::select! {
       e = l4, if l4_enabled => {
           match e {
-              Ok(Ok(_)) => info!("L4 Forward exited successfully"),
-              Ok(Err(e)) => warn!("L4 Forward exited with error: {}", e),
-              Err(e) => warn!("L4 Forward exited with error: {}", e),
+              Ok(Ok(_)) => info!("SNI proxy exited successfully"),
+              Ok(Err(e)) => warn!("SNI proxy exited with error: {}", e),
+              Err(e) => warn!("SNI proxy exited with error: {}", e),
           }
       },
       e = rtsp, if opts.rtsp_listen.is_some() => {

@@ -32,15 +32,15 @@ pub async fn serve_sni_proxy(
   let sni_map = Arc::new(sni::SniMap { host_mappings });
 
   for (host, (forward, _)) in &sni_map.host_mappings {
-    info!("L4 SNI proxy {} {} -> {}", socket, host, forward);
+    info!("SNI proxy {} {} -> {}", socket, host, forward);
   }
 
   loop {
     // Currently no QUIC support, we only support TCP
     if let Err(e) = listen_tcp(socket, sni_map.clone()).await {
-      error!("L4 Forward exited with error, restarting\n{:?}", e);
+      error!("SNI proxy exited with error, restarting\n{:?}", e);
     } else {
-      debug!("L4 Forward exited unexpectedly, restarting...");
+      debug!("SNI proxy exited unexpectedly, restarting...");
     }
   }
 }
@@ -66,7 +66,7 @@ async fn listen_tcp(socket: SocketAddr, sni_map: Arc<sni::SniMap>) -> anyhow::Re
     let (stream, client) = match listener.accept().await {
       Ok(v) => v,
       Err(e) => {
-        error!("L4 Accept failed: {:?}", e);
+        error!("TCP accept failed: {:?}", e);
         continue;
       }
     };
@@ -74,7 +74,7 @@ async fn listen_tcp(socket: SocketAddr, sni_map: Arc<sni::SniMap>) -> anyhow::Re
     let sni_map = sni_map.clone();
     tokio::spawn(async move {
       if let Err(e) = sni::sni_proxy(sni_map, stream, client).await {
-        debug!("L4 TCP forward for {:?} exited: {:?}", &client, e);
+        debug!("SNI proxy forward for {:?} exited: {:?}", &client, e);
       }
     });
   }

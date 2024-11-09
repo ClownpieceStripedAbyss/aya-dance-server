@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use aya_dance_types::SongId;
 use futures::{Stream, StreamExt};
+use log::trace;
 use once_cell::sync::OnceCell;
 use reqwest::redirect::Policy;
 use tokio::{fs::File, io::AsyncWriteExt};
@@ -19,39 +20,56 @@ pub type Uri = FullPath;
 pub type QueryParameters = Option<String>;
 pub type Headers = warp::http::HeaderMap;
 
+pub struct InspectingOpts {
+  pub id: SongId,
+  pub download_tmp: String,
+  pub cache_file: String,
+  pub metadata_json: String,
+  pub etag: String,
+  pub expected_size: u64,
+}
+
+pub struct ProxyOpts {
+  pub host_override: Option<String>,
+  pub user_agent_override: Option<String>,
+  pub allow_304: bool,
+}
+
 pub async fn proxy_and_inspecting(
   proxy_uri: String,
   method: reqwest::Method,
   headers: warp::http::HeaderMap,
   body: Bytes,
-  host_override: Option<String>,
-  user_agent_override: Option<String>,
-  dump_opts: Option<(SongId, String, String, String, String, u64)>,
+  proxy_opts: ProxyOpts,
+  dump_opts: Option<InspectingOpts>,
 ) -> Result<warp::http::Response<Body>, Rejection> {
   let mut hdr = reqwest::header::HeaderMap::new();
   for (k, v) in headers.iter() {
     let ks = k.as_str();
     match ks.to_lowercase().as_str() {
-      "host" if host_override.is_some() => {
+      "host" if proxy_opts.host_override.is_some() => {
         hdr.insert(
           reqwest::header::HOST,
-          reqwest::header::HeaderValue::from_str(host_override.as_ref().unwrap()).unwrap(),
+          reqwest::header::HeaderValue::from_str(proxy_opts.host_override.as_ref().unwrap())
+            .unwrap(),
         );
       }
-      "user-agent" if user_agent_override.is_some() => {
+      "user-agent" if proxy_opts.user_agent_override.is_some() => {
         hdr.insert(
           reqwest::header::USER_AGENT,
           reqwest::header::HeaderValue::from_str(
             format!(
               "{} {}",
               v.to_str().unwrap(),
-              user_agent_override.as_ref().unwrap()
+              proxy_opts.user_agent_override.as_ref().unwrap()
             )
             .as_str(),
           )
           .unwrap(),
         );
       }
+      "if-none-match" if !proxy_opts.allow_304 => {}
+      "if-modified-since" if !proxy_opts.allow_304 => {}
       _ => {
         hdr.insert(
           reqwest::header::HeaderName::from_str(ks).unwrap(),
@@ -68,12 +86,14 @@ pub async fn proxy_and_inspecting(
     .build()
     .map_err(errors::Error::Request)
     .map_err(warp::reject::custom)?;
+  trace!(">>>>> Request: {:#?}", request);
   let response = CLIENT
     .get_or_init(default_reqwest_client)
     .execute(request)
     .await
     .map_err(errors::Error::Request)
     .map_err(warp::reject::custom)?;
+  trace!("<<<<< Response: {:#?}", response);
   response_to_reply(response, dump_opts)
     .await
     .map_err(warp::reject::custom)
@@ -82,7 +102,7 @@ pub async fn proxy_and_inspecting(
 /// Converts a reqwest response into a http::Response
 async fn response_to_reply(
   response: reqwest::Response,
-  dump_opts: Option<(SongId, String, String, String, String, u64)>,
+  dump_opts: Option<InspectingOpts>,
 ) -> Result<warp::http::Response<Body>, errors::Error> {
   let mut builder = warp::http::Response::builder();
   for (k, v) in response.headers().iter() {
@@ -96,9 +116,9 @@ async fn response_to_reply(
   let status = response.status();
   let byte_stream = response.bytes_stream();
   let body = match dump_opts {
-    Some((id, download_tmp, cache_file, metadata_json, etag, expected_size)) => {
+    Some(opts) => {
       // create parent directories if not exist
-      for file in [&cache_file, &download_tmp, &metadata_json] {
+      for file in [&opts.cache_file, &opts.download_tmp, &opts.metadata_json] {
         if let Some(parent) = std::path::Path::new(file).parent() {
           if let Err(e) = tokio::fs::create_dir_all(parent).await {
             log::warn!(
@@ -113,21 +133,25 @@ async fn response_to_reply(
       match tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open(download_tmp.clone())
+        .open(opts.download_tmp.clone())
         .await
       {
         Ok(file) => inspecting(
-          id,
-          expected_size,
-          download_tmp,
-          cache_file,
-          metadata_json,
+          opts.id,
+          opts.expected_size,
+          opts.download_tmp,
+          opts.cache_file,
+          opts.metadata_json,
           byte_stream,
           file,
-          etag,
+          opts.etag,
         ),
         Err(e) => {
-          log::warn!("Failed to open file {} for caching: {}", download_tmp, e);
+          log::warn!(
+            "Failed to open file {} for caching: {}",
+            opts.download_tmp,
+            e
+          );
           Body::wrap_stream(byte_stream)
         }
       }

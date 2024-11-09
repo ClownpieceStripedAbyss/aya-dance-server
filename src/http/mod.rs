@@ -15,6 +15,7 @@ use warp_real_ip::get_forwarded_for;
 
 use crate::{
   cdn::{
+    proxy::{InspectingOpts, ProxyOpts},
     receipt::{RoomId, UserId},
     CdnFetchResult,
   },
@@ -65,6 +66,10 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         let location = match serve {
           CdnFetchResult::Miss => {
             // Not found in our CDN, let's redirect to the original source.
+            info!(
+              "[MISS] Cache {} miss: redirect to https://api.udon.dance",
+              id
+            );
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
           CdnFetchResult::Hit(token) => {
@@ -133,7 +138,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           }
         };
 
-        debug!("serving file: {:?}, client={}", video_file, remote);
+        info!("[HIT] Cache {} found: serving {}", id, video_file);
         crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await
       },
     );
@@ -246,6 +251,10 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .map_err(|_| warp::reject::custom(CustomRejection::NoServeToken))?;
         let location = match serve {
           CdnFetchResult::Miss => {
+            info!(
+              "[MISS] Cache {} miss: redirect to https://api.udon.dance",
+              id
+            );
             // Not found in our CDN, let's redirect to api.udon.dance
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
@@ -299,7 +308,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
        query: HashMap<String, String>,
        app: AppService,
        real_ip: Option<IpAddr>,
-       remote: Option<SocketAddr>, 
+       remote: Option<SocketAddr>,
        range: Option<String>,
        headers: warp::http::HeaderMap,
        body: bytes::Bytes| async move {
@@ -326,10 +335,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .await;
         match available {
           true => {
-            info!(
-              "[HIT] Cache file for song {} found: serving {}",
-              id, cache_file
-            );
+            info!("[HIT] Cache {} found: serving {}", id, cache_file);
             crate::cdn::range::get_range(range, &cache_file, "video/mp4").await
           }
           _ => {
@@ -348,8 +354,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               ),
             };
             info!(
-              "[MISS] Cache file {} miss: re-caching via {} (Host: {})",
-              cache_file, upstream_dns, host_override
+              "[MISS] Cache {} miss: fetch from {} (DNS: {}))",
+              id, host_override, upstream_dns,
             );
             crate::cdn::proxy::proxy_and_inspecting(
               format!(
@@ -359,13 +365,23 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               reqwest::Method::GET,
               headers,
               body,
-              Some(host_override),
-              Some(format!(
-                "WannaDanceSelfHostedCDN/{}.{}",
-                crate::MY_VERSION_ID,
-                crate::my_git_hash(),
-              )),
-              Some((id, download_tmp, cache_file, metadata_json, e.clone(), s)),
+              ProxyOpts {
+                host_override: Some(host_override),
+                user_agent_override: Some(format!(
+                  "WannaDanceSelfHostedCDN/{}.{}",
+                  crate::MY_VERSION_ID,
+                  crate::my_git_hash(),
+                )),
+                allow_304: app.opts.proxy_allow_304,
+              },
+              Some(InspectingOpts {
+                id,
+                download_tmp,
+                cache_file,
+                metadata_json,
+                etag: e.clone(),
+                expected_size: s,
+              }),
             )
             .await
           }

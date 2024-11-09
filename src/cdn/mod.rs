@@ -1,7 +1,7 @@
 use std::{net::IpAddr, sync::Arc};
 
 use anyhow::anyhow;
-use log::debug;
+use log::{debug, trace};
 use redis::{AsyncCommands, SetExpiry, SetOptions};
 use uuid::Uuid;
 
@@ -79,8 +79,8 @@ impl CdnServiceImpl {
     }
   }
 
-  pub async fn serve_file_no_auth(&self, id: SongId) -> (String, String, bool) {
-    debug!("serve_file_no_auth: id={}", id);
+  async fn serve_file_no_auth(&self, id: SongId) -> (String, String, bool) {
+    trace!("serve_file_no_auth: id={}", id);
     self.get_video_file_path(id).await
   }
 
@@ -90,7 +90,7 @@ impl CdnServiceImpl {
     token: String,
     remote: IpAddr,
   ) -> Result<Option<String>> {
-    debug!("serve_file: token={}, client={}", token, remote);
+    trace!("serve_file: token={}, client={}", token, remote);
 
     // Get the song id from the token
     let id_in_token = match song_id_for_token(&token) {
@@ -139,7 +139,7 @@ impl CdnServiceImpl {
   }
 
   pub async fn serve_token(&self, id: SongId, remote: IpAddr) -> Result<CdnFetchResult> {
-    debug!("serve_token: id={}, client={}", id, remote);
+    trace!("serve_token: id={}, client={}", id, remote);
     let token = token_for_song_id(id);
 
     let (_, _, avail) = self.get_video_file_path(id).await;
