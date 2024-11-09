@@ -354,8 +354,8 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               ),
             };
             info!(
-              "[MISS] Cache {} miss: fetch from {} (DNS: {}))",
-              id, host_override, upstream_dns,
+              "[MISS] Cache {} miss ({}): fetch from {} (DNS: {})",
+              id, cache_file, host_override, upstream_dns,
             );
             crate::cdn::proxy::proxy_and_inspecting(
               format!(

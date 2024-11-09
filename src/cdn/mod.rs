@@ -1,7 +1,7 @@
 use std::{net::IpAddr, sync::Arc};
 
 use anyhow::anyhow;
-use log::{debug, trace};
+use log::trace;
 use redis::{AsyncCommands, SetExpiry, SetOptions};
 use uuid::Uuid;
 

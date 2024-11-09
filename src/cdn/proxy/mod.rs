@@ -176,6 +176,7 @@ fn inspecting(
 ) -> Body {
   Body::wrap_stream(async_stream::stream! {
     let mut total_written = 0u64;
+    let mut last_show_percentage = 0;
     let start_time = std::time::Instant::now();
     loop {
       tokio::select! {
@@ -189,11 +190,21 @@ fn inspecting(
               Ok(_) => {
                 let len = bytes.len();
                 total_written += len as u64;
-                log::debug!("Wrote {}/{} ({:.2}%) bytes to cache file {}",
+                let percentage = total_written as f64 / expected_size as f64 * 100.0;
+                trace!("Wrote {}/{} ({:.2}%) bytes to cache file {}",
                   total_written, expected_size,
-                  total_written as f64 / expected_size as f64 * 100.0,
+                  percentage,
                   download_tmp
                 );
+                let percentage_level = percentage as u64 / 20;
+                if percentage_level > last_show_percentage {
+                  last_show_percentage = percentage_level;
+                  log::debug!("Wrote {}/{} ({:.2}%) bytes to cache file {}",
+                    total_written, expected_size,
+                    percentage,
+                    download_tmp
+                  );
+                }
                 if total_written >= expected_size {
                   let elapsed = start_time.elapsed().as_secs_f64();
                   let speed = total_written as f64 / elapsed;
@@ -297,8 +308,8 @@ fn to_human_readable_speed(speed: f64) -> String {
 fn to_human_readable(x: f64, units: &[&str]) -> String {
   let mut x = x;
   let mut i = 0;
-  while x >= 1000.0 {
-    x /= 1000.0;
+  while x >= 1024.0 {
+    x /= 1024.0;
     i += 1;
   }
   format!("{:.2} {}", x, units[i])
