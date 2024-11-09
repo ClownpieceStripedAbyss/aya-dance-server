@@ -2,11 +2,9 @@ use std::{net::IpAddr, sync::Arc};
 
 use anyhow::anyhow;
 use log::trace;
-use redis::{AsyncCommands, SetExpiry, SetOptions};
 use uuid::Uuid;
 
 use crate::{
-  redis::RedisService,
   types::{SongId, UuidString},
   Result,
 };
@@ -19,18 +17,16 @@ pub mod receipt;
 pub struct CdnServiceImpl {
   pub video_path: String,
   pub cache_path: String,
-  pub redis: Option<RedisService>,
 }
 
 pub type CdnService = Arc<CdnServiceImpl>;
 pub type CdnFetchToken = UuidString;
 
 impl CdnServiceImpl {
-  pub fn new(video_path: String, cache_path: String, redis: Option<RedisService>) -> CdnService {
+  pub fn new(video_path: String, cache_path: String) -> CdnService {
     Arc::new(CdnServiceImpl {
       video_path,
       cache_path,
-      redis,
     })
   }
 }
@@ -39,18 +35,6 @@ impl CdnServiceImpl {
 pub enum CdnFetchResult {
   Hit(CdnFetchToken),
   Miss,
-}
-
-macro_rules! redis_get {
-  ($redis:expr, $k:expr, $d:expr) => {
-    match $redis.get().await?.get($k).await {
-      Ok(v) => v,
-      Err(e) => match e.kind() {
-        redis::ErrorKind::TypeError => $d,
-        _ => return Err(e.into()),
-      },
-    }
-  };
 }
 
 impl CdnServiceImpl {
@@ -110,32 +94,8 @@ impl CdnServiceImpl {
       _ => (),
     }
 
-    // Check if the provided token is valid
-    let (is_member, is_valid) = match &self.redis {
-      None => (true, true),
-      Some(redis) => {
-        let redis = redis.pool.clone();
-        let tokens_set = format!("cdn_token_set:{}:{}", id_in_token, remote);
-        let token_valid = format!("cdn_token_valid:{}", token);
-        let is_member: bool = redis
-          .get()
-          .await?
-          .sismember(&tokens_set, token.clone())
-          .await?;
-        let is_valid: bool = redis_get!(redis, token_valid, false);
-        if !is_member || !is_valid {
-          redis.get().await?.srem(&tokens_set, token).await?;
-        }
-        (is_member, is_valid)
-      }
-    };
-
-    if is_member && is_valid {
-      let (video, _, avail) = self.get_video_file_path(id_in_token).await;
-      Ok(avail.then(|| video))
-    } else {
-      Err(anyhow!("token expired"))
-    }
+    let (video, _, avail) = self.get_video_file_path(id_in_token).await;
+    Ok(avail.then(|| video))
   }
 
   pub async fn serve_token(&self, id: SongId, remote: IpAddr) -> Result<CdnFetchResult> {
@@ -144,29 +104,7 @@ impl CdnServiceImpl {
 
     let (_, _, avail) = self.get_video_file_path(id).await;
     match avail {
-      // Now if the file exists, we can generate a token for the client.
-      true => {
-        if let Some(redis) = &self.redis {
-          let tokens_set = format!("cdn_token_set:{}:{}", id, remote);
-          let token_valid = format!("cdn_token_valid:{}", token);
-
-          let redis = redis.pool.clone();
-          redis.get().await?.sadd(&tokens_set, token.clone()).await?;
-          // Mark the token as valid for 10 minutes
-          redis
-            .get()
-            .await?
-            .set_options(
-              &token_valid,
-              true,
-              SetOptions::default().with_expiration(SetExpiry::EX(10 * 60)),
-            )
-            .await?;
-        }
-
-        Ok(CdnFetchResult::Hit(token))
-      }
-      // Otherwise, return a miss.
+      true => Ok(CdnFetchResult::Hit(token)),
       false => Ok(CdnFetchResult::Miss),
     }
   }

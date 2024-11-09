@@ -109,12 +109,12 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         let token = match qs.get("auth") {
           Some(token) => Some(token.clone()),
           // allow empty token if no_auth is enabled
-          None if app.opts.no_auth => None,
+          None /*if app.opts.no_auth */ => None,
           // otherwise, reject
-          None => {
-            warn!("Missing token, id={}, client={}", id, remote);
-            return Err(warp::reject::custom(CustomRejection::BadToken));
-          }
+          // None => {
+          //   warn!("Missing token, id={}, client={}", id, remote);
+          //   return Err(warp::reject::custom(CustomRejection::BadToken));
+          // }
         };
         let backing_cdn = match qs.get("t") {
           Some(t) if t == "wd" => &app.cdn,
