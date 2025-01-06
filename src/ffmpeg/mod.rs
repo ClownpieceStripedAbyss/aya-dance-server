@@ -1,6 +1,6 @@
 use std::ffi::CString;
 use anyhow::anyhow;
-use rsmpeg::{avformat::{AVFormatContextInput, AVFormatContextOutput}, avutil, ffi};
+use rsmpeg::{avformat::{AVFormatContextInput, AVFormatContextOutput}, avutil, ffi, UnsafeDerefMut};
 
 pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offset: f64) -> anyhow::Result<()> {
   let input_file = CString::new(input_file)?;
@@ -39,14 +39,11 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
     let mut audio_out_stream = output_ctx.new_stream();
     audio_out_stream.set_time_base(audio_in_stream.time_base);
     audio_out_stream.set_codecpar(audio_in_stream.codecpar().clone());
-    
-    // audio_out_stream.set_codecpar(unsafe {
-    //   // let mut c = AVCodecParameters::from_raw(NonNull::new(audio_in_stream.codecpar).unwrap());
-    //   // c.deref_mut().codec_id = ffi::AV_CODEC_ID_AAC;
-    //   // c.deref_mut().codec_tag = 0;
-    //   // c
-    //   AVCodecParameters::from_raw(NonNull::new(audio_in_stream.codecpar).unwrap()).clone()
-    // }); 
+    unsafe {
+      audio_out_stream.codecpar_mut().deref_mut().codec_id = ffi::AV_CODEC_ID_AAC;
+      audio_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
+      audio_out_stream.deref_mut().start_time = (ffi::AV_TIME_BASE as f64 * audio_offset) as i64;
+    }
   }
 
   // Open output file
@@ -99,8 +96,8 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
       in_stream.time_base,
       out_stream_time_base,
     ));
+    
     packet.set_stream_index(out_stream_index as i32);
-
     output_ctx.interleaved_write_frame(&mut packet)?;
   }
 
