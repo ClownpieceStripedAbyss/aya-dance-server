@@ -68,35 +68,51 @@ pub fn ffmpeg_audio_test() -> anyhow::Result<()> {
   // Read packets from input and write to output
   while let Some(mut packet) = input_ctx.read_packet()? {
     let stream_index = packet.stream_index as usize;
+    let out_stream: &AVStreamMut;
+    let in_stream = &input_ctx.streams()[stream_index];
 
     if stream_index == video_in_stream_index {
-      // Video stream, copy packet as is
-      packet.set_stream_index(video_out_stream.index as i32);
-      output_ctx.write_frame(&mut packet)?;
+      out_stream = &mut video_out_stream;
     } else if stream_index == audio_in_stream_index {
-      // Audio stream, adjust timestamp for offset
-      packet.set_pts(avutil::av_rescale_q(
-        packet.pts + (audio_offset * time_base_to_double(audio_in_stream.time_base)) as i64,
-        audio_in_stream.time_base,
-        audio_out_stream.time_base,
+      out_stream = &mut audio_out_stream;
+      packet.set_pts(packet.pts + avutil::av_rescale_q(
+        (audio_offset * ffi::AV_TIME_BASE as f64) as i64,
+        ffi::AV_TIME_BASE_Q,
+        out_stream.time_base,
       ));
-      packet.set_dts(avutil::av_rescale_q(
-        packet.dts + (audio_offset * time_base_to_double(audio_in_stream.time_base)) as i64,
-        audio_in_stream.time_base,
-        audio_out_stream.time_base,
+      packet.set_dts(packet.dts + avutil::av_rescale_q(
+        (audio_offset * ffi::AV_TIME_BASE as f64) as i64,
+        ffi::AV_TIME_BASE_Q,
+        out_stream.time_base,
       ));
-      
-      packet.set_stream_index(audio_out_stream.index as i32);
-      output_ctx.write_frame(&mut packet)?;
+    } else {
+      continue;
     }
+    
+    packet.set_pts(avutil::av_rescale_q_rnd(
+      packet.pts,
+      in_stream.time_base,
+      out_stream.time_base,
+      ffi::AV_ROUND_NEAR_INF as u32,
+    ));
+    packet.set_dts(avutil::av_rescale_q_rnd(
+      packet.dts,
+      in_stream.time_base,
+      out_stream.time_base,
+      ffi::AV_ROUND_NEAR_INF as u32,
+    ));
+    packet.set_duration(avutil::av_rescale_q(
+      packet.duration,
+      in_stream.time_base,
+      out_stream.time_base,
+    ));
+    packet.set_stream_index(out_stream.index as i32);
+    
+    output_ctx.interleaved_write_frame(&mut packet)?;
   }
 
   // Write trailer
   output_ctx.write_trailer()?;
 
   Ok(())
-}
-
-fn time_base_to_double(time_base: avutil::AVRational) -> f64 {
-  time_base.num as f64 / time_base.den as f64
 }
