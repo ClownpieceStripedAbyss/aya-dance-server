@@ -60,6 +60,9 @@ pub struct AppOpts {
 
   #[clap(long, env, default_value = "false")]
   pub proxy_allow_304: bool,
+  
+  #[clap(long, env, default_value = "0")]
+  pub audio_compensation: f64,
 }
 
 #[derive(Debug)]
