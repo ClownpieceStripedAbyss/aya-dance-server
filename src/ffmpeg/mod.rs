@@ -1,15 +1,10 @@
 use std::{ffi::CString, ptr, ptr::NonNull};
 use std::mem::ManuallyDrop;
 use anyhow::anyhow;
-use rsmpeg::{
-  avcodec::AVCodecParameters,
-  avformat::{AVFormatContextInput, AVFormatContextOutput, AVStreamMut},
-  avutil, ffi,
-};
+use rsmpeg::{avcodec::AVCodecParameters, avformat::{AVFormatContextInput, AVFormatContextOutput, AVStreamMut}, avutil, ffi, UnsafeDerefMut};
 
 pub fn ffmpeg_audio_test() -> anyhow::Result<()> {
   let input_file = CString::new("input.mp4")?;
-  let output_file = CString::new("output.mp4")?;
   let audio_offset = -0.16667; // Audio delay in seconds
 
   // Open input file
@@ -30,7 +25,8 @@ pub fn ffmpeg_audio_test() -> anyhow::Result<()> {
   let video_in_stream = input_ctx.streams()[video_in_stream_index].clone();
   let audio_in_stream = input_ctx.streams()[audio_in_stream_index].clone();
 
-  // Create output context
+  // Create output context with in-memory IO
+  let output_file = CString::new("output.mkv")?;
   let mut output_ctx = AVFormatContextOutput::create(&output_file, None)?;
 
   // Add video stream to output
@@ -47,7 +43,7 @@ pub fn ffmpeg_audio_test() -> anyhow::Result<()> {
     AVCodecParameters::from_raw(NonNull::new(video_in_stream.codecpar).unwrap())
   });
 
-  // Add video stream to output, NOTE: wrap it in ManuallyDrop to prevent drop,
+  // Add audio stream to output, NOTE: wrap it in ManuallyDrop to prevent drop,
   // since the video_out_stream will drop the same pointer, which will cause double free.
   let mut audio_out_stream = ManuallyDrop::new(unsafe {
     let new_stream = NonNull::new(ffi::avformat_new_stream(
@@ -59,7 +55,10 @@ pub fn ffmpeg_audio_test() -> anyhow::Result<()> {
   });
   audio_out_stream.set_time_base(audio_in_stream.time_base);
   audio_out_stream.set_codecpar(unsafe {
-    AVCodecParameters::from_raw(NonNull::new(audio_in_stream.codecpar).unwrap())
+    let mut c = AVCodecParameters::from_raw(NonNull::new(audio_in_stream.codecpar).unwrap());
+    c.deref_mut().codec_id = ffi::AV_CODEC_ID_AAC;
+    c.deref_mut().codec_tag = 0;
+    c
   });
 
   // Open output file
@@ -88,7 +87,7 @@ pub fn ffmpeg_audio_test() -> anyhow::Result<()> {
     } else {
       continue;
     }
-    
+
     packet.set_pts(avutil::av_rescale_q_rnd(
       packet.pts,
       in_stream.time_base,
@@ -107,7 +106,7 @@ pub fn ffmpeg_audio_test() -> anyhow::Result<()> {
       out_stream.time_base,
     ));
     packet.set_stream_index(out_stream.index as i32);
-    
+
     output_ctx.interleaved_write_frame(&mut packet)?;
   }
 
