@@ -11,4 +11,12 @@ pub fn main() {
     .git_sha(false)
     .emit()
     .unwrap();
+
+  if cfg!(feature = "ffmpeg") && cfg!(target_os = "windows") {
+    // https://github.com/microsoft/vcpkg/pull/14082
+    println!("cargo:rustc-link-lib=dylib=strmiids");
+    println!("cargo:rustc-link-lib=dylib=mfplat");
+    println!("cargo:rustc-link-lib=dylib=mfuuid");
+    println!("cargo:rustc-link-lib=dylib=mf"); 
+  }
 }

@@ -7,6 +7,10 @@ build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["ffmpeg"]
+ffmpeg = ["dep:rsmpeg"]
+
 [dependencies]
 
 anyhow = { version = "1.0.80", features = ["backtrace"] }
@@ -17,7 +21,7 @@ dotenvy = "0.15.7"
 env_logger = "0.11.3"
 futures = "0.3.30"
 hex = "0.4.3"
-itertools = "0.13.0"
+itertools = "0.14.0"
 log = "0.4.20"
 rand = "0.8.5"
 serde = "1.0.197"
@@ -45,8 +49,25 @@ aya-dance-types = { path = "./crates/aya-dance-types" }
 async-stream = "0.3.5"
 md5 = "0.7.0"
 
+# ffmpeg feature
+rsmpeg = { version = "0.15.1", optional = true }
+
 [dev-dependencies]
 mock_instant = "0.3.0"
 
 [build-dependencies]
 vergen = { version = "8.3.2", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }
+
+# ffmpeg feature: build ffmpeg from vcpkg
+# # *nix (the path of the folder named after the triplet may change)
+#export FFMPEG_PKG_CONFIG_PATH=${PWD}/target/vcpkg/installed/x64-linux/lib/pkgconfig
+## Windows(CMD)
+#set FFMPEG_PKG_CONFIG_PATH=%CD%\target\vcpkg\installed\x64-windows-static-md\lib\pkgconfig
+## Windows(PowerShell)
+#$env:FFMPEG_PKG_CONFIG_PATH="$(($PWD).path)\target\vcpkg\installed\x64-windows-static-md\lib\pkgconfig"
+# cargo install cargo-vcpkg
+# cargo vcpkg --verbose build
+[package.metadata.vcpkg]
+dependencies = ["ffmpeg[x264,x265,vpx]:x64-windows-static-md"]
+git = "https://github.com/microsoft/vcpkg"
+rev = "b322364"

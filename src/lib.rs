@@ -18,6 +18,7 @@ pub mod http;
 pub mod index;
 pub mod rtsp;
 pub mod types;
+pub mod ffmpeg;
 
 pub type Result<T> = anyhow::Result<T>;
 
