@@ -2,8 +2,8 @@ use std::ffi::CString;
 
 use anyhow::anyhow;
 use rsmpeg::{
-  avcodec::{AVCodec, AVCodecContext, AVPacket},
-  avformat::{AVFormatContextInput, AVFormatContextOutput},
+  avcodec::{AVCodec, AVCodecContext, AVCodecParameters, AVPacket},
+  avformat::{AVFormatContextInput, AVFormatContextOutput, AVStreamMut, AVStreamRef},
   avutil::{AVDictionary, AVFrame, AVRational},
   ffi, UnsafeDerefMut,
 };
@@ -26,31 +26,19 @@ pub fn ffmpeg_audio_compensation(
     .map_err(|e| anyhow!("Could not open input audio file: {}", e))?;
 
   // Find video and audio streams
-  let video_in_stream_index = video_input_ctx
-    .streams()
-    .iter()
-    .position(|stream| stream.codecpar().codec_type == rsmpeg::ffi::AVMEDIA_TYPE_VIDEO)
-    .ok_or_else(|| anyhow!("No video stream found"))?;
-  let audio_in_stream_index = audio_input_ctx
-    .streams()
-    .iter()
-    .position(|stream| stream.codecpar().codec_type == rsmpeg::ffi::AVMEDIA_TYPE_AUDIO)
-    .ok_or_else(|| anyhow!("No audio stream found"))?;
+  let ((_, video_in_stream_index), (_, audio_in_stream_index)) =
+    find_video_audio(&video_input_ctx, &audio_input_ctx)
+      .map_err(|e| anyhow!("Could not find video and audio streams: {}", e))?;
 
   // Create output context with in-memory IO
   let mut output_ctx = AVFormatContextOutput::create(&output_file, None)?;
 
   // Add video stream to output
-  {
-    let video_in_stream = &video_input_ctx.streams()[video_in_stream_index];
-
-    let mut video_out_stream = output_ctx.new_stream();
-    video_out_stream.set_time_base(video_in_stream.time_base);
-    video_out_stream.set_codecpar(video_in_stream.codecpar().clone());
-    unsafe {
-      video_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
-    }
-  }
+  new_stream(
+    &video_input_ctx.streams()[video_in_stream_index],
+    &mut output_ctx,
+    None,
+  );
 
   // Create audio decoder based on input audio stream
   let (_audio_decoder, mut audio_decoder_ctx, audio_in_timebase) = {
@@ -125,23 +113,11 @@ pub fn ffmpeg_audio_compensation(
   let mut enc_audio_ctx = aac_encoder_ctx;
 
   // Add audio stream to output
-  {
-    let audio_in_stream = &audio_input_ctx.streams()[audio_in_stream_index];
-
-    let mut audio_out_stream = output_ctx.new_stream();
-    audio_out_stream.set_time_base(audio_in_stream.time_base);
-    // audio_out_stream.set_codecpar(audio_in_stream.codecpar().clone());
-    // unsafe {
-    //   audio_out_stream.codecpar_mut().deref_mut().codec_id =
-    // ffi::AV_CODEC_ID_AAC;   audio_out_stream.codecpar_mut().deref_mut().
-    // codec_tag = 0; }
-
-    // Copy codec parameters from AAC encoder to output audio stream
-    audio_out_stream.set_codecpar(enc_audio_ctx.extract_codecpar());
-    unsafe {
-      audio_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
-    }
-  }
+  new_stream(
+    &audio_input_ctx.streams()[audio_in_stream_index],
+    &mut output_ctx,
+    Some(enc_audio_ctx.extract_codecpar()),
+  );
 
   // Set faststart flag for HTTP progressive download
   let muxer_opts = AVDictionary::new(&CString::new("movflags")?, &CString::new("+faststart")?, 0);
@@ -303,6 +279,45 @@ fn encode_frame_and_write_to_output(
   Ok(())
 }
 
+fn find_video_audio<'a>(
+  video_input_ctx: &'a AVFormatContextInput,
+  audio_input_ctx: &'a AVFormatContextInput,
+) -> anyhow::Result<((&'a AVStreamRef<'a>, usize), (&'a AVStreamRef<'a>, usize))> {
+  // Find video and audio streams
+  let video_in_stream_index = video_input_ctx
+    .streams()
+    .iter()
+    .position(|stream| stream.codecpar().codec_type == rsmpeg::ffi::AVMEDIA_TYPE_VIDEO)
+    .ok_or_else(|| anyhow!("No video stream found"))?;
+  let audio_in_stream_index = audio_input_ctx
+    .streams()
+    .iter()
+    .position(|stream| stream.codecpar().codec_type == rsmpeg::ffi::AVMEDIA_TYPE_AUDIO)
+    .ok_or_else(|| anyhow!("No audio stream found"))?;
+
+  let video_in_stream = &video_input_ctx.streams()[video_in_stream_index];
+  let audio_in_stream = &audio_input_ctx.streams()[audio_in_stream_index];
+  Ok((
+    (video_in_stream, video_in_stream_index),
+    (audio_in_stream, audio_in_stream_index),
+  ))
+}
+
+fn new_stream<'a>(
+  in_stream: &AVStreamRef,
+  output_ctx: &'a mut AVFormatContextOutput,
+  codecpar: Option<AVCodecParameters>,
+) -> AVStreamMut<'a> {
+  let mut out_stream = output_ctx.new_stream();
+
+  out_stream.set_time_base(in_stream.time_base);
+  out_stream.set_codecpar(codecpar.unwrap_or_else(|| in_stream.codecpar().clone()));
+  unsafe {
+    out_stream.codecpar_mut().deref_mut().codec_tag = 0;
+  }
+  out_stream
+}
+
 pub fn ffmpeg_copy(input_file: &str, output_file: &str) -> anyhow::Result<()> {
   let input_file = CString::new(input_file)?;
   let output_file = CString::new(output_file)?;
@@ -311,42 +326,17 @@ pub fn ffmpeg_copy(input_file: &str, output_file: &str) -> anyhow::Result<()> {
   let mut input_ctx = AVFormatContextInput::open(&input_file, None, &mut None)?;
 
   // Find video and audio streams
-  let video_in_stream_index = input_ctx
-    .streams()
-    .iter()
-    .position(|stream| stream.codecpar().codec_type == rsmpeg::ffi::AVMEDIA_TYPE_VIDEO)
-    .ok_or_else(|| anyhow!("No video stream found"))?;
-  let audio_in_stream_index = input_ctx
-    .streams()
-    .iter()
-    .position(|stream| stream.codecpar().codec_type == rsmpeg::ffi::AVMEDIA_TYPE_AUDIO)
-    .ok_or_else(|| anyhow!("No audio stream found"))?;
-
-  let video_in_stream = &input_ctx.streams()[video_in_stream_index];
-  let audio_in_stream = &input_ctx.streams()[audio_in_stream_index];
+  let ((video_in_stream, video_in_stream_index), (audio_in_stream, audio_in_stream_index)) =
+    find_video_audio(&input_ctx, &input_ctx)
+      .map_err(|e| anyhow!("Could not find video and audio streams: {}", e))?;
 
   // Create output context with in-memory IO
   let mut output_ctx = AVFormatContextOutput::create(&output_file, None)?;
 
   // Add video stream to output
-  {
-    let mut video_out_stream = output_ctx.new_stream();
-    video_out_stream.set_time_base(video_in_stream.time_base);
-    video_out_stream.set_codecpar(video_in_stream.codecpar().clone());
-    unsafe {
-      video_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
-    }
-  }
-
+  new_stream(video_in_stream, &mut output_ctx, None);
   // Add audio stream to output
-  {
-    let mut audio_out_stream = output_ctx.new_stream();
-    audio_out_stream.set_time_base(audio_in_stream.time_base);
-    audio_out_stream.set_codecpar(audio_in_stream.codecpar().clone());
-    unsafe {
-      audio_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
-    }
-  }
+  new_stream(audio_in_stream, &mut output_ctx, None);
 
   // Open output file
   output_ctx.write_header(&mut None)?;
