@@ -2,8 +2,9 @@ use std::ffi::CString;
 
 use anyhow::anyhow;
 use rsmpeg::{
-  avcodec::{AVCodec, AVCodecContext},
+  avcodec::{AVCodec, AVCodecContext, AVPacket},
   avformat::{AVFormatContextInput, AVFormatContextOutput},
+  avutil::{AVFrame, AVRational},
   ffi, UnsafeDerefMut,
 };
 
@@ -170,73 +171,107 @@ pub fn ffmpeg_audio_compensation(
 
   let mut start_pts = ffi::AV_NOPTS_VALUE;
 
-  while let Some(mut pkt) = audio_input_ctx.read_packet()? {
+  while let Some(pkt) = audio_input_ctx.read_packet()? {
     if pkt.stream_index as usize != audio_in_stream_index {
       continue;
     }
 
-    // Send audio packet to decoder
-    dec_audio_ctx
-      .send_packet(Some(&mut pkt))
-      .map_err(|e| anyhow!("Error sending audio packet to decoder: {}", e))?;
-    while let Ok(mut dec_frame) = dec_audio_ctx.receive_frame() {
-      // Set start_pts if it is the first frame we receive
-      if start_pts == ffi::AV_NOPTS_VALUE {
-        start_pts = dec_frame.pts;
-      }
-      // Shift pts
-      dec_frame.set_pts(dec_frame.pts - start_pts);
-
-      // Now encode it
-      enc_audio_ctx
-        .send_frame(Some(&mut dec_frame))
-        .map_err(|e| anyhow!("Error sending audio frame to encoder: {}", e))?;
-      while let Ok(mut enc_pkt) = enc_audio_ctx.receive_packet() {
-        enc_pkt.set_stream_index(out_audio_steam_index);
-        enc_pkt.rescale_ts(enc_audio_ctx.time_base, out_audio_stream_time_base);
-
-        output_ctx.interleaved_write_frame(&mut enc_pkt)?;
-      }
-    }
+    decode_packet_and_encode_frame_with_offset(
+      Some(&pkt),
+      &mut output_ctx,
+      &mut dec_audio_ctx,
+      &mut enc_audio_ctx,
+      out_audio_steam_index,
+      out_audio_stream_time_base,
+      &mut start_pts,
+    )
+    .map_err(|e| anyhow!("Error re-encoding audio packet: {}", e))?;
   }
 
   // Flush audio decoder
-  dec_audio_ctx
-    .send_packet(None)
-    .map_err(|e| anyhow!("Error flushing audio decoder: {}", e))?;
-  while let Ok(mut dec_frame) = dec_audio_ctx.receive_frame() {
-    // Set start_pts if it is the first frame we receive
-    if start_pts == ffi::AV_NOPTS_VALUE {
-      start_pts = dec_frame.pts;
-    }
-    // Shift pts
-    dec_frame.set_pts(dec_frame.pts - start_pts);
-
-    // Now encode it
-    enc_audio_ctx
-      .send_frame(Some(&mut dec_frame))
-      .map_err(|e| anyhow!("Error sending audio frame to encoder: {}", e))?;
-    while let Ok(mut enc_pkt) = enc_audio_ctx.receive_packet() {
-      enc_pkt.set_stream_index(out_audio_steam_index);
-      enc_pkt.rescale_ts(enc_audio_ctx.time_base, out_audio_stream_time_base);
-
-      output_ctx.interleaved_write_frame(&mut enc_pkt)?;
-    }
-  }
+  decode_packet_and_encode_frame_with_offset(
+    None,
+    &mut output_ctx,
+    &mut dec_audio_ctx,
+    &mut enc_audio_ctx,
+    out_audio_steam_index,
+    out_audio_stream_time_base,
+    &mut start_pts,
+  )
+  .map_err(|e| anyhow!("Error flushing audio decoder: {}", e))?;
 
   // Flush audio encoder
-  enc_audio_ctx
-    .send_frame(None)
-    .map_err(|e| anyhow!("Error flushing audio encoder: {}", e))?;
-  while let Ok(mut enc_pkt) = enc_audio_ctx.receive_packet() {
-    enc_pkt.set_stream_index(out_audio_steam_index);
-    enc_pkt.rescale_ts(enc_audio_ctx.time_base, out_audio_stream_time_base);
-
-    output_ctx.interleaved_write_frame(&mut enc_pkt)?;
-  }
+  encode_frame_and_write_to_output(
+    None,
+    &mut output_ctx,
+    &mut enc_audio_ctx,
+    out_audio_steam_index,
+    out_audio_stream_time_base,
+  )
+  .map_err(|e| anyhow!("Error flushing audio encoder: {}", e))?;
 
   // Ok, we finally finished
   output_ctx.write_trailer()?;
 
+  Ok(())
+}
+
+fn decode_packet_and_encode_frame_with_offset(
+  pkt: Option<&AVPacket>,
+  mut output_ctx: &mut AVFormatContextOutput,
+  dec_audio_ctx: &mut AVCodecContext,
+  mut enc_audio_ctx: &mut AVCodecContext,
+  out_audio_steam_index: i32,
+  out_audio_stream_time_base: AVRational,
+  start_pts: &mut i64,
+) -> anyhow::Result<()> {
+  // Send audio packet to decoder
+  dec_audio_ctx
+    .send_packet(pkt)
+    .map_err(|e| anyhow!("Error sending audio packet to decoder: {}", e))?;
+  while let Ok(mut dec_frame) = dec_audio_ctx.receive_frame() {
+    // Set start_pts if it is the first frame we receive
+    if *start_pts == ffi::AV_NOPTS_VALUE {
+      *start_pts = dec_frame.pts;
+    }
+    // Shift pts
+    dec_frame.set_pts(dec_frame.pts - *start_pts);
+
+    // Now encode it
+    encode_frame_and_write_to_output(
+      Some(&dec_frame),
+      &mut output_ctx,
+      &mut enc_audio_ctx,
+      out_audio_steam_index,
+      out_audio_stream_time_base,
+    )
+    .map_err(|e| anyhow!("Error encoding and writing audio frame: {}", e))?;
+  }
+  Ok(())
+}
+
+fn encode_frame_and_write_to_output(
+  frame: Option<&AVFrame>,
+  output_ctx: &mut AVFormatContextOutput,
+  enc_audio_ctx: &mut AVCodecContext,
+  out_audio_steam_index: i32,
+  out_audio_stream_time_base: AVRational,
+) -> anyhow::Result<()> {
+  enc_audio_ctx
+    .send_frame(frame)
+    .map_err(|e| anyhow!("Error sending frame to encoder: {}", e))?;
+  while let Ok(mut enc_pkt) = enc_audio_ctx.receive_packet() {
+    enc_pkt.set_stream_index(out_audio_steam_index);
+    enc_pkt.rescale_ts(enc_audio_ctx.time_base, out_audio_stream_time_base);
+
+    output_ctx
+      .interleaved_write_frame(&mut enc_pkt)
+      .map_err(|e| {
+        anyhow!(
+          "Error writing audio packet with interleaved_write_frame: {}",
+          e
+        )
+      })?;
+  }
   Ok(())
 }
