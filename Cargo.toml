@@ -68,6 +68,9 @@ vergen = { version = "8.3.2", features = ["build", "cargo", "git", "gitcl", "rus
 # cargo install cargo-vcpkg
 # cargo vcpkg --verbose build
 [package.metadata.vcpkg]
-dependencies = ["ffmpeg[x264,x265,vpx]:x64-windows-static-md"]
 git = "https://github.com/microsoft/vcpkg"
 rev = "b322364"
+
+[package.metadata.vcpkg.target]
+x86_64-unknown-linux-gnu = { dependencies = ["ffmpeg[x264,x265,vpx]:x64-linux"] }
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static", dependencies = ["ffmpeg[x264,x265,vpx]:x64-windows-static-md"] }

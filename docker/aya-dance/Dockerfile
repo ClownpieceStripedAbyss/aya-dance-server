@@ -10,13 +10,17 @@ RUN apt-get install -y --no-install-recommends \
   libssl-dev \
   git-core \
   pkg-config \
+  curl zip unzip tar \
+  nasm \
   && apt-get clean \
   && rm -rf /tmp/* /var/tmp/*
 
 WORKDIR /builder
 COPY . .
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release --package wanna-cdn
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo install cargo-vcpkg
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo vcpkg --verbose build
+RUN --mount=type=cache,target=/usr/local/cargo/registry FFMPEG_PKG_CONFIG_PATH=/builder/target/vcpkg/installed/x64-linux/lib/pkgconfig cargo build --release --package wanna-cdn
 
 FROM debian:bookworm-slim
 ARG DEBIAN_FRONTEND=noninteractive
