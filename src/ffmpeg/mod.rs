@@ -13,9 +13,8 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
   // Open input video file
   let mut video_input_ctx = AVFormatContextInput::open(&input_file, None, &mut None)
     .map_err(|e| anyhow!("Could not open input video file: {}", e))?;
-  // Open input audio file with ss %audio_offset%
-  let audio_open_opts = AVDictionary::new(&CString::new("ss")?, &CString::new(audio_offset.to_string())?, 0);
-  let mut audio_input_ctx = AVFormatContextInput::open(&input_file, None, &mut Some(audio_open_opts))
+  // Open input audio file
+  let mut audio_input_ctx = AVFormatContextInput::open(&input_file, None, &mut None)
     .map_err(|e| anyhow!("Could not open input audio file: {}", e))?;
 
   // Find video and audio streams
@@ -57,7 +56,7 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
       audio_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
     }
   }
-  
+
   // Create audio decoder based on input audio stream
   let (_audio_decoder, mut audio_decoder_ctx, audio_in_timebase) = {
     let audio_in_stream = &audio_input_ctx.streams()[audio_in_stream_index];
@@ -94,7 +93,7 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
   // Open audio decoder
   audio_decoder_ctx.open(None).map_err(|e| anyhow!("Could not open audio decoder: {}", e))?;
   let mut dec_audio_ctx = audio_decoder_ctx;
-  
+
   // Open AAC encoder
   aac_encoder_ctx.open(None).map_err(|e| anyhow!("Could not open AAC encoder: {}", e))?;
   let mut enc_audio_ctx = aac_encoder_ctx;
@@ -123,6 +122,7 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
   ///////////////////////////////////
 
   unsafe {
+    // Seek audio stream to audio_offset
     let ts = audio_offset / ffi::av_q2d(audio_in_timebase);
     ffi::av_seek_frame(audio_input_ctx.as_mut_ptr(), audio_in_stream_index as i32, ts as i64, ffi::AVSEEK_FLAG_ANY as i32);
   }
@@ -131,7 +131,7 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
     let out_audio_stream = output_ctx.streams().iter().find(|s| s.codecpar().codec_type == rsmpeg::ffi::AVMEDIA_TYPE_AUDIO).unwrap();
     (out_audio_stream.index, out_audio_stream.time_base)
   };
-  
+
   while let Some(mut pkt) = audio_input_ctx.read_packet()? {
     if pkt.stream_index as usize != audio_in_stream_index {
       continue;
@@ -140,7 +140,7 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
     // pkt.set_stream_index(out_audio_steam_index);
     // pkt.rescale_ts(in_stream.time_base, out_audio_stream_time_base);
     // pkt.set_pos(-1);
-    
+
     // Send audio packet to decoder
     dec_audio_ctx.send_packet(Some(&mut pkt)).map_err(|e| anyhow!("Error sending audio packet to decoder: {}", e))?;
     while let Ok(mut dec_frame) = dec_audio_ctx.receive_frame() {
@@ -159,7 +159,7 @@ pub fn ffmpeg_audio_compensation(input_file: &str, output_file: &str, audio_offs
       }
     }
   }
-  
+
   // Flush audio decoder
   dec_audio_ctx.send_packet(None).map_err(|e| anyhow!("Error flushing audio decoder: {}", e))?;
   while let Ok(mut dec_frame) = dec_audio_ctx.receive_frame() {
