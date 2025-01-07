@@ -73,4 +73,4 @@ rev = "b322364"
 
 [package.metadata.vcpkg.target]
 x86_64-unknown-linux-gnu = { dependencies = ["ffmpeg[x264,x265,vpx]:x64-linux"] }
-x86_64-pc-windows-msvc = { triplet = "x64-windows-static", dependencies = ["ffmpeg[x264,x265,vpx]:x64-windows-static-md"] }
+x86_64-pc-windows-msvc = { dependencies = ["ffmpeg[x264,x265,vpx]:x64-windows-static-md"] }
