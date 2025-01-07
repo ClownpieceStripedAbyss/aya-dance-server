@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use rsmpeg::{
   avcodec::{AVCodec, AVCodecContext, AVPacket},
   avformat::{AVFormatContextInput, AVFormatContextOutput},
-  avutil::{AVFrame, AVRational},
+  avutil::{AVDictionary, AVFrame, AVRational},
   ffi, UnsafeDerefMut,
 };
 
@@ -52,19 +52,6 @@ pub fn ffmpeg_audio_compensation(
     }
   }
 
-  // Add audio stream to output
-  {
-    let audio_in_stream = &audio_input_ctx.streams()[audio_in_stream_index];
-
-    let mut audio_out_stream = output_ctx.new_stream();
-    audio_out_stream.set_time_base(audio_in_stream.time_base);
-    audio_out_stream.set_codecpar(audio_in_stream.codecpar().clone());
-    unsafe {
-      audio_out_stream.codecpar_mut().deref_mut().codec_id = ffi::AV_CODEC_ID_AAC;
-      audio_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
-    }
-  }
-
   // Create audio decoder based on input audio stream
   let (_audio_decoder, mut audio_decoder_ctx, audio_in_timebase) = {
     let audio_in_stream = &audio_input_ctx.streams()[audio_in_stream_index];
@@ -80,6 +67,11 @@ pub fn ffmpeg_audio_compensation(
           e
         )
       })?;
+
+    // https://stackoverflow.com/questions/25688313/how-to-use-ffmpeg-faststart-flag-programmatically
+    if (output_ctx.oformat().flags & ffi::AVFMT_GLOBALHEADER as i32) != 0 {
+      decoder_ctx.set_flags(ffi::AV_CODEC_FLAG_GLOBAL_HEADER as i32);
+    }
 
     (audio_decoder, decoder_ctx, audio_in_stream.time_base)
   };
@@ -104,6 +96,18 @@ pub fn ffmpeg_audio_compensation(
         .unwrap_or(&[ffi::AV_SAMPLE_FMT_FLTP])[0],
     );
     aac_ctx.set_bit_rate(audio_in_codecpar.bit_rate);
+    aac_ctx.apply_codecpar(&audio_in_codecpar).map_err(|e| {
+      anyhow!(
+        "Could not apply codec parameters to AAC encoder context: {}",
+        e
+      )
+    })?;
+
+    // https://stackoverflow.com/questions/25688313/how-to-use-ffmpeg-faststart-flag-programmatically
+    if (output_ctx.oformat().flags & ffi::AVFMT_GLOBALHEADER as i32) != 0 {
+      log::debug!("Setting global header flag for AAC encoder");
+      aac_ctx.set_flags(ffi::AV_CODEC_FLAG_GLOBAL_HEADER as i32);
+    }
 
     (aac_encoder, aac_ctx)
   };
@@ -120,9 +124,31 @@ pub fn ffmpeg_audio_compensation(
     .map_err(|e| anyhow!("Could not open AAC encoder: {}", e))?;
   let mut enc_audio_ctx = aac_encoder_ctx;
 
+  // Add audio stream to output
+  {
+    let audio_in_stream = &audio_input_ctx.streams()[audio_in_stream_index];
+
+    let mut audio_out_stream = output_ctx.new_stream();
+    audio_out_stream.set_time_base(audio_in_stream.time_base);
+    // audio_out_stream.set_codecpar(audio_in_stream.codecpar().clone());
+    // unsafe {
+    //   audio_out_stream.codecpar_mut().deref_mut().codec_id =
+    // ffi::AV_CODEC_ID_AAC;   audio_out_stream.codecpar_mut().deref_mut().
+    // codec_tag = 0; }
+
+    // Copy codec parameters from AAC encoder to output audio stream
+    audio_out_stream.set_codecpar(enc_audio_ctx.extract_codecpar());
+    unsafe {
+      audio_out_stream.codecpar_mut().deref_mut().codec_tag = 0;
+    }
+  }
+
+  // Set faststart flag for HTTP progressive download
+  let muxer_opts = AVDictionary::new(&CString::new("movflags")?, &CString::new("+faststart")?, 0);
+
   // Open output file
   output_ctx
-    .write_header(&mut None)
+    .write_header(&mut Some(muxer_opts))
     .map_err(|e| anyhow!("Could not write output file header: {}", e))?;
 
   ///////////////////////////////////
@@ -263,6 +289,7 @@ fn encode_frame_and_write_to_output(
   while let Ok(mut enc_pkt) = enc_audio_ctx.receive_packet() {
     enc_pkt.set_stream_index(out_audio_steam_index);
     enc_pkt.rescale_ts(enc_audio_ctx.time_base, out_audio_stream_time_base);
+    enc_pkt.set_pos(-1);
 
     output_ctx
       .interleaved_write_frame(&mut enc_pkt)
