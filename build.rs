@@ -17,6 +17,6 @@ pub fn main() {
     println!("cargo:rustc-link-lib=dylib=strmiids");
     println!("cargo:rustc-link-lib=dylib=mfplat");
     println!("cargo:rustc-link-lib=dylib=mfuuid");
-    println!("cargo:rustc-link-lib=dylib=mf"); 
+    println!("cargo:rustc-link-lib=dylib=mf");
   }
 }

@@ -3,11 +3,14 @@ use std::{
   convert::Infallible,
   net::{IpAddr, SocketAddr},
 };
+
 use itertools::Either;
 use log::{debug, info, trace, warn};
 use serde_derive::Deserialize;
 use serde_json::json;
-use warp::{addr::remote, http::StatusCode, hyper, path::FullPath, reject::Reject, Filter, Rejection, Reply};
+use warp::{
+  addr::remote, http::StatusCode, hyper, path::FullPath, reject::Reject, Filter, Rejection, Reply,
+};
 use warp_real_ip::get_forwarded_for;
 
 use crate::{
@@ -16,10 +19,10 @@ use crate::{
     receipt::{RoomId, UserId},
     CdnFetchResult,
   },
+  ffmpeg::ffmpeg_audio_compensation,
   types::SongId,
   AppService,
 };
-use crate::ffmpeg::ffmpeg_audio_compensation;
 
 pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
   let socket = app
@@ -556,10 +559,18 @@ pub fn real_ip() -> impl Filter<Extract = (Option<IpAddr>,), Error = Infallible>
   )
 }
 
-pub async fn serve_video_mp4(app: AppService, id: SongId, range: Option<String>, video_file: String) -> Result<warp::http::Response<hyper::body::Body>, Rejection>{
+pub async fn serve_video_mp4(
+  app: AppService,
+  id: SongId,
+  range: Option<String>,
+  video_file: String,
+) -> Result<warp::http::Response<hyper::body::Body>, Rejection> {
   let audio_offset = app.opts.audio_compensation;
   if (audio_offset - 0.0).abs() > f64::EPSILON {
-    let compensated = format!("{}/{}-audio-offset-{}.mp4", app.cdn.cache_path, id, audio_offset);
+    let compensated = format!(
+      "{}/{}-audio-offset-{}.mp4",
+      app.cdn.cache_path, id, audio_offset
+    );
     if !std::path::Path::new(compensated.as_str()).exists() {
       std::fs::create_dir_all(app.cdn.cache_path.as_str())
         .map_err(|_| warp::reject::custom(CustomRejection::CacheDirNotAvailable))?;
@@ -569,12 +580,15 @@ pub async fn serve_video_mp4(app: AppService, id: SongId, range: Option<String>,
           return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
         }
         _ => {
-          info!("Compensated audio file generated for song {}: {}", id, compensated);
+          info!(
+            "Compensated audio file generated for song {}: {}",
+            id, compensated
+          );
         }
       }
     }
     info!("Serving compensated audio for song {}: {}", id, compensated);
-    return crate::cdn::range::get_range(range, compensated.as_str(), "video/mp4").await
+    return crate::cdn::range::get_range(range, compensated.as_str(), "video/mp4").await;
   }
   crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await
 }

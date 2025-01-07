@@ -13,12 +13,12 @@ use crate::{
 };
 
 pub mod cdn;
+pub mod ffmpeg;
 pub mod forward;
 pub mod http;
 pub mod index;
 pub mod rtsp;
 pub mod types;
-pub mod ffmpeg;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -60,7 +60,7 @@ pub struct AppOpts {
 
   #[clap(long, env, default_value = "false")]
   pub proxy_allow_304: bool,
-  
+
   #[clap(long, env, default_value = "0")]
   pub audio_compensation: f64,
 }
