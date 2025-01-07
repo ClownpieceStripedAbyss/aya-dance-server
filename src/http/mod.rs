@@ -140,7 +140,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         };
 
         info!("[HIT] Cache {} found: serving {}", id, video_file);
-        serve_video_mp4(app, id, range, video_file).await
+        serve_video_mp4(app, id, range, video_file, None).await
       },
     );
   //
@@ -337,7 +337,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         match available {
           true => {
             info!("[HIT] Cache {} found: serving {}", id, cache_file);
-            serve_video_mp4(app, id, range, cache_file).await
+            serve_video_mp4(app, id, range, cache_file, Some(e.clone())).await
           }
           _ => {
             let (upstream_dns, host_override) = match headers
@@ -564,12 +564,13 @@ pub async fn serve_video_mp4(
   id: SongId,
   range: Option<String>,
   video_file: String,
+  md5: Option<String>,
 ) -> Result<warp::http::Response<hyper::body::Body>, Rejection> {
   let audio_offset = app.opts.audio_compensation;
   if (audio_offset - 0.0).abs() > f64::EPSILON {
     let compensated = format!(
-      "{}/{}-audio-offset-{}.mp4",
-      app.cdn.cache_path, id, audio_offset
+      "{}/{}-{}-audio-offset-{}.mp4",
+      app.cdn.cache_path, id, md5.clone().unwrap_or_default(), audio_offset
     );
     if !std::path::Path::new(compensated.as_str()).exists() {
       if let Err(e) = std::fs::create_dir_all(app.cdn.cache_path.as_str()) {
@@ -581,8 +582,8 @@ pub async fn serve_video_mp4(
       }
 
       let compensated_stage1 = format!(
-        "{}/{}-audio-offset-{}-nocopy.mp4",
-        app.cdn.cache_path, id, audio_offset
+        "{}/{}-{}-audio-offset-{}-nocopy.mp4",
+        app.cdn.cache_path, id, md5.unwrap_or_default(), audio_offset
       );
 
       let start = std::time::Instant::now();
