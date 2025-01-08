@@ -568,9 +568,26 @@ pub async fn serve_video_mp4(
 ) -> Result<warp::http::Response<hyper::body::Body>, Rejection> {
   let audio_offset = app.opts.audio_compensation;
   if (audio_offset - 0.0).abs() > f64::EPSILON {
+    let md5 = match md5 {
+      Some(m) => m,
+      None => match app.cdn.get_video_file_path(id).await {
+        (_, metadata_json, avail) if avail => std::fs::File::open(metadata_json)
+          .map_err(|e| anyhow::anyhow!("Failed to open metadata: {:?}", e))
+          .and_then(|f| {
+            serde_json::from_reader::<_, aya_dance_types::Song>(f)
+              .map_err(|e| anyhow::anyhow!("Failed to parse metadata: {:?}", e))
+          })
+          .and_then(|s| {
+            s.checksum
+              .ok_or_else(|| anyhow::anyhow!("No checksum in metadata"))
+          })
+          .unwrap_or_default(),
+        _ => "".to_string(),
+      },
+    };
     let compensated = format!(
       "{}/{}-{}-audio-offset-{}.mp4",
-      app.cdn.cache_path, id, md5.clone().unwrap_or_default(), audio_offset
+      app.cdn.cache_path, id, md5, audio_offset
     );
     if !std::path::Path::new(compensated.as_str()).exists() {
       if let Err(e) = std::fs::create_dir_all(app.cdn.cache_path.as_str()) {
@@ -583,7 +600,7 @@ pub async fn serve_video_mp4(
 
       let compensated_stage1 = format!(
         "{}/{}-{}-audio-offset-{}-nocopy.mp4",
-        app.cdn.cache_path, id, md5.unwrap_or_default(), audio_offset
+        app.cdn.cache_path, id, md5, audio_offset
       );
 
       let start = std::time::Instant::now();
