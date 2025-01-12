@@ -604,40 +604,52 @@ pub async fn serve_video_mp4(
       );
 
       let start = std::time::Instant::now();
-      if let Err(e) = ffmpeg_audio_compensation(
+      let stats = match ffmpeg_audio_compensation(
         video_file.as_str(),
         compensated_stage1.as_str(),
         audio_offset,
       ) {
-        warn!(
-          "Failed to compensate audio for song {}, serving original video: {:?}",
-          id, e
-        );
-        return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
-      }
+        Ok(stats) => stats,
+        Err(e) => {
+          warn!(
+            "Failed to compensate audio for song {}, serving original video: {:?}",
+            id, e
+          );
+          return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
+        }
+      };
 
       info!(
-        "Compensate (ss+aac, {}s) {}: {}",
-        start.elapsed().as_secs_f64(),
+        "Compensate {} (ss+aac, {:.2}s, vcopy={:.3}s, adec={:.3}s, ares={:.3}s, aenc={:.3}s)",
         id,
-        compensated_stage1
+        start.elapsed().as_secs_f64(),
+        stats.video_copy_secs,
+        stats.audio_decode_secs,
+        stats.audio_resample_secs,
+        stats.audio_encode_secs,
       );
 
       let start = std::time::Instant::now();
       if let Err(e) = ffmpeg_copy(compensated_stage1.as_str(), compensated.as_str()) {
         warn!(
-          "Failed to copy compensated audio for song {}, serving original video: {:?}",
-          id, e
+          "Failed to copy compensated audio for song {} (file: {}), serving original video: {:?}",
+          id, compensated_stage1, e
         );
         return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
       }
 
       info!(
-        "Compensate (copy, {}s) {}: {}",
-        start.elapsed().as_secs_f64(),
+        "Compensate {} (copy,   {:.2}s)",
         id,
-        compensated
+        start.elapsed().as_secs_f64(),
       );
+
+      if let Err(e) = std::fs::remove_file(compensated_stage1.as_str()) {
+        warn!(
+          "Failed to remove temporary file {}: {:?}",
+          compensated_stage1, e
+        );
+      }
     }
     info!("Serving compensated {}: {}", id, compensated);
     return crate::cdn::range::get_range(range, compensated.as_str(), "video/mp4").await;

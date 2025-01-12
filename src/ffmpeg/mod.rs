@@ -1,7 +1,6 @@
 use std::{ffi::CString, ptr};
 
 use anyhow::anyhow;
-use log::info;
 use rsmpeg::{
   avcodec::{AVCodec, AVCodecContext, AVCodecParameters, AVPacket},
   avformat::{AVFormatContextInput, AVFormatContextOutput, AVStreamMut, AVStreamRef},
@@ -173,6 +172,8 @@ pub fn ffmpeg_audio_compensation(
   ///////////////////////////////////
   // VIDEO
   ///////////////////////////////////
+  let stat_start = std::time::Instant::now();
+
   while let Some(mut pkt) = video_input_ctx.read_packet()? {
     if pkt.stream_index as usize != video_in_stream_index {
       continue;
@@ -189,6 +190,8 @@ pub fn ffmpeg_audio_compensation(
     pkt.set_pos(-1);
     output_ctx.interleaved_write_frame(&mut pkt)?;
   }
+
+  stats.video_copy_secs = stat_start.elapsed().as_secs_f64();
 
   ///////////////////////////////////
   // AUDIO
@@ -227,6 +230,7 @@ pub fn ffmpeg_audio_compensation(
       &mut dec_audio_ctx,
       &mut enc_audio_ctx,
       &mut swr_ctx,
+      &mut stats,
       out_audio_steam_index,
       out_audio_stream_time_base,
       &mut start_pts,
@@ -241,6 +245,7 @@ pub fn ffmpeg_audio_compensation(
     &mut dec_audio_ctx,
     &mut enc_audio_ctx,
     &mut swr_ctx,
+    &mut stats,
     out_audio_steam_index,
     out_audio_stream_time_base,
     &mut start_pts,
@@ -252,6 +257,7 @@ pub fn ffmpeg_audio_compensation(
     None,
     &mut output_ctx,
     &mut enc_audio_ctx,
+    &mut stats,
     out_audio_steam_index,
     out_audio_stream_time_base,
   )
@@ -269,15 +275,19 @@ fn decode_packet_and_encode_frame_with_offset(
   dec_audio_ctx: &mut AVCodecContext,
   mut enc_audio_ctx: &mut AVCodecContext,
   swr_ctx: &mut SwrContext,
+  stats: &mut AudioCompensationStatistics,
   out_audio_steam_index: i32,
   out_audio_stream_time_base: AVRational,
   start_pts: &mut i64,
 ) -> anyhow::Result<()> {
+  let decode_start = std::time::Instant::now();
   // Send audio packet to decoder
   dec_audio_ctx
     .send_packet(pkt)
     .map_err(|e| anyhow!("Error sending audio packet to decoder: {}", e))?;
   while let Ok(mut dec_frame) = dec_audio_ctx.receive_frame() {
+    stats.audio_decode_secs += decode_start.elapsed().as_secs_f64();
+
     // Set start_pts if it is the first frame we receive
     if *start_pts == ffi::AV_NOPTS_VALUE {
       *start_pts = dec_frame.pts;
@@ -286,6 +296,8 @@ fn decode_packet_and_encode_frame_with_offset(
     // Resample audio frame if needed to avoid
     // [aac @ 000001B6FE889140] nb_samples (2048) > frame_size (1024)
     if dec_frame.nb_samples > enc_audio_ctx.frame_size {
+      let resample_start = std::time::Instant::now();
+
       // rsmpeg's convert_frame must be called with an output, but we are converting
       // nb_samples from 2048 to 1024, so we must give a null output.
       let ret = unsafe {
@@ -299,9 +311,13 @@ fn decode_packet_and_encode_frame_with_offset(
         return Err(anyhow!(RsmpegError::from(ret)));
       }
 
+      stats.audio_resample_secs += resample_start.elapsed().as_secs_f64();
+
       let mut last_frame_pts = dec_frame.pts;
       let mut increased_pts = 1;
       loop {
+        let resample_start = std::time::Instant::now();
+
         let mut converted_frame = AVFrame::new();
         converted_frame.set_ch_layout(enc_audio_ctx.ch_layout().clone().into_inner());
         converted_frame.set_format(enc_audio_ctx.sample_fmt);
@@ -341,11 +357,16 @@ fn decode_packet_and_encode_frame_with_offset(
           increased_pts = 1;
         }
 
+        // Shift pts
         converted_frame.set_pts(converted_frame.pts - *start_pts);
+
+        stats.audio_resample_secs += resample_start.elapsed().as_secs_f64();
+
         encode_frame_and_write_to_output(
           Some(&converted_frame),
           &mut output_ctx,
           &mut enc_audio_ctx,
+          stats,
           out_audio_steam_index,
           out_audio_stream_time_base,
         )
@@ -358,6 +379,7 @@ fn decode_packet_and_encode_frame_with_offset(
         Some(&dec_frame),
         &mut output_ctx,
         &mut enc_audio_ctx,
+        stats,
         out_audio_steam_index,
         out_audio_stream_time_base,
       )
@@ -371,13 +393,18 @@ fn encode_frame_and_write_to_output(
   frame: Option<&AVFrame>,
   output_ctx: &mut AVFormatContextOutput,
   enc_audio_ctx: &mut AVCodecContext,
+  stats: &mut AudioCompensationStatistics,
   out_audio_steam_index: i32,
   out_audio_stream_time_base: AVRational,
 ) -> anyhow::Result<()> {
+  let encode_start = std::time::Instant::now();
+
   enc_audio_ctx
     .send_frame(frame)
     .map_err(|e| anyhow!("Error sending frame to encoder: {}", e))?;
   while let Ok(mut enc_pkt) = enc_audio_ctx.receive_packet() {
+    stats.audio_encode_secs += encode_start.elapsed().as_secs_f64();
+
     enc_pkt.set_stream_index(out_audio_steam_index);
     enc_pkt.rescale_ts(enc_audio_ctx.time_base, out_audio_stream_time_base);
     enc_pkt.set_pos(-1);
