@@ -314,7 +314,7 @@ fn decode_packet_and_encode_frame_with_offset(
       stats.audio_resample_secs += resample_start.elapsed().as_secs_f64();
 
       let mut last_frame_pts = dec_frame.pts;
-      let mut increased_pts = 1;
+      let mut increased_pts = 0;
       loop {
         let resample_start = std::time::Instant::now();
 
@@ -354,7 +354,7 @@ fn decode_packet_and_encode_frame_with_offset(
           increased_pts += 1;
         } else {
           last_frame_pts = converted_frame.pts;
-          increased_pts = 1;
+          increased_pts = 0;
         }
 
         // Shift pts
