@@ -1,12 +1,24 @@
-use std::ffi::CString;
+use std::{ffi::CString, ptr};
 
 use anyhow::anyhow;
+use log::info;
 use rsmpeg::{
   avcodec::{AVCodec, AVCodecContext, AVCodecParameters, AVPacket},
   avformat::{AVFormatContextInput, AVFormatContextOutput, AVStreamMut, AVStreamRef},
   avutil::{AVDictionary, AVFrame, AVRational},
-  ffi, UnsafeDerefMut,
+  error::RsmpegError,
+  ffi,
+  swresample::SwrContext,
+  UnsafeDerefMut,
 };
+
+#[derive(Debug, Copy, Clone)]
+pub struct AudioCompensationStatistics {
+  pub video_copy_secs: f64,
+  pub audio_decode_secs: f64,
+  pub audio_encode_secs: f64,
+  pub audio_resample_secs: f64,
+}
 
 // ffmpeg -i %input_file% -ss %audio_offset% -i %input_file% -map 0:v -map 1:a
 // -c:v copy -c:a aac -async 1 %output_file%
@@ -14,7 +26,14 @@ pub fn ffmpeg_audio_compensation(
   input_file: &str,
   output_file: &str,
   audio_offset: f64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<AudioCompensationStatistics> {
+  let mut stats = AudioCompensationStatistics {
+    video_copy_secs: 0.0,
+    audio_decode_secs: 0.0,
+    audio_encode_secs: 0.0,
+    audio_resample_secs: 0.0,
+  };
+
   let input_file = CString::new(input_file)?;
   let output_file = CString::new(output_file)?;
 
@@ -84,12 +103,12 @@ pub fn ffmpeg_audio_compensation(
         .unwrap_or(&[ffi::AV_SAMPLE_FMT_FLTP])[0],
     );
     aac_ctx.set_bit_rate(audio_in_codecpar.bit_rate);
-    aac_ctx.apply_codecpar(&audio_in_codecpar).map_err(|e| {
-      anyhow!(
-        "Could not apply codec parameters to AAC encoder context: {}",
-        e
-      )
-    })?;
+    // aac_ctx.apply_codecpar(&audio_in_codecpar).map_err(|e| {
+    //   anyhow!(
+    //     "Could not apply codec parameters to AAC encoder context: {}",
+    //     e
+    //   )
+    // })?;
 
     // https://stackoverflow.com/questions/25688313/how-to-use-ffmpeg-faststart-flag-programmatically
     if (output_ctx.oformat().flags & ffi::AVFMT_GLOBALHEADER as i32) != 0 {
@@ -111,6 +130,30 @@ pub fn ffmpeg_audio_compensation(
     .open(None)
     .map_err(|e| anyhow!("Could not open AAC encoder: {}", e))?;
   let mut enc_audio_ctx = aac_encoder_ctx;
+
+  // Create resampler context when nb_samples > frame_size
+  let mut swr_ctx = {
+    let in_ch_layout = dec_audio_ctx.ch_layout();
+    let in_sample_fmt = dec_audio_ctx.sample_fmt;
+    let in_sample_rate = dec_audio_ctx.sample_rate;
+    let out_ch_layout = enc_audio_ctx.ch_layout();
+    let out_sample_fmt = enc_audio_ctx.sample_fmt;
+    let out_sample_rate = enc_audio_ctx.sample_rate;
+
+    let mut swr_ctx = SwrContext::new(
+      &out_ch_layout,
+      out_sample_fmt,
+      out_sample_rate,
+      &in_ch_layout,
+      in_sample_fmt,
+      in_sample_rate,
+    )
+    .map_err(|e| anyhow!("Could not create SwrContext: {}", e))?;
+    swr_ctx
+      .init()
+      .map_err(|e| anyhow!("Could not initialize SwrContext: {}", e))?;
+    swr_ctx
+  };
 
   // Add audio stream to output
   new_stream(
@@ -183,6 +226,7 @@ pub fn ffmpeg_audio_compensation(
       &mut output_ctx,
       &mut dec_audio_ctx,
       &mut enc_audio_ctx,
+      &mut swr_ctx,
       out_audio_steam_index,
       out_audio_stream_time_base,
       &mut start_pts,
@@ -196,6 +240,7 @@ pub fn ffmpeg_audio_compensation(
     &mut output_ctx,
     &mut dec_audio_ctx,
     &mut enc_audio_ctx,
+    &mut swr_ctx,
     out_audio_steam_index,
     out_audio_stream_time_base,
     &mut start_pts,
@@ -215,7 +260,7 @@ pub fn ffmpeg_audio_compensation(
   // Ok, we finally finished
   output_ctx.write_trailer()?;
 
-  Ok(())
+  Ok(stats)
 }
 
 fn decode_packet_and_encode_frame_with_offset(
@@ -223,6 +268,7 @@ fn decode_packet_and_encode_frame_with_offset(
   mut output_ctx: &mut AVFormatContextOutput,
   dec_audio_ctx: &mut AVCodecContext,
   mut enc_audio_ctx: &mut AVCodecContext,
+  swr_ctx: &mut SwrContext,
   out_audio_steam_index: i32,
   out_audio_stream_time_base: AVRational,
   start_pts: &mut i64,
@@ -236,18 +282,87 @@ fn decode_packet_and_encode_frame_with_offset(
     if *start_pts == ffi::AV_NOPTS_VALUE {
       *start_pts = dec_frame.pts;
     }
-    // Shift pts
-    dec_frame.set_pts(dec_frame.pts - *start_pts);
 
-    // Now encode it
-    encode_frame_and_write_to_output(
-      Some(&dec_frame),
-      &mut output_ctx,
-      &mut enc_audio_ctx,
-      out_audio_steam_index,
-      out_audio_stream_time_base,
-    )
-    .map_err(|e| anyhow!("Error encoding and writing audio frame: {}", e))?;
+    // Resample audio frame if needed to avoid
+    // [aac @ 000001B6FE889140] nb_samples (2048) > frame_size (1024)
+    if dec_frame.nb_samples > enc_audio_ctx.frame_size {
+      // rsmpeg's convert_frame must be called with an output, but we are converting
+      // nb_samples from 2048 to 1024, so we must give a null output.
+      let ret = unsafe {
+        ffi::swr_convert_frame(
+          swr_ctx.as_ptr() as *mut _,
+          ptr::null_mut(),
+          dec_frame.as_ptr(),
+        )
+      };
+      if ret < 0 {
+        return Err(anyhow!(RsmpegError::from(ret)));
+      }
+
+      let mut last_frame_pts = dec_frame.pts;
+      let mut increased_pts = 1;
+      loop {
+        let mut converted_frame = AVFrame::new();
+        converted_frame.set_ch_layout(enc_audio_ctx.ch_layout().clone().into_inner());
+        converted_frame.set_format(enc_audio_ctx.sample_fmt);
+        converted_frame.set_sample_rate(enc_audio_ctx.sample_rate);
+        converted_frame.set_pts(dec_frame.pts);
+        converted_frame.set_nb_samples(enc_audio_ctx.frame_size);
+        converted_frame
+          .alloc_buffer()
+          .map_err(|e| anyhow!("Error allocating buffer for resampled audio frame: {}", e))?;
+
+        swr_ctx
+          .convert_frame(None, &mut converted_frame)
+          .map_err(|e| anyhow!("Error resampling audio frame: {}", e))?;
+
+        // No more samples, break for next decoded frame
+        if converted_frame.nb_samples == 0 {
+          break;
+        }
+
+        // theoretically this should not happen, but just in case
+        if converted_frame.nb_samples > enc_audio_ctx.frame_size {
+          return Err(anyhow!(
+            "Resampled frame still has more samples ({}) than encoder frame size ({})?",
+            converted_frame.nb_samples,
+            enc_audio_ctx.frame_size
+          ));
+        }
+
+        // A frame may be resampled to multiple frames, and ffmpeg encoder requires
+        // the pts to be monotonically increasing, so we must increase the pts for each
+        // resampled frame.
+        if converted_frame.pts == last_frame_pts {
+          converted_frame.set_pts(converted_frame.pts + increased_pts);
+          increased_pts += 1;
+        } else {
+          last_frame_pts = converted_frame.pts;
+          increased_pts = 1;
+        }
+
+        converted_frame.set_pts(converted_frame.pts - *start_pts);
+        encode_frame_and_write_to_output(
+          Some(&converted_frame),
+          &mut output_ctx,
+          &mut enc_audio_ctx,
+          out_audio_steam_index,
+          out_audio_stream_time_base,
+        )
+        .map_err(|e| anyhow!("Error resampling+encoding and writing audio frame: {}", e))?;
+      }
+    } else {
+      // No need to resample, shift pts and encode the frame
+      dec_frame.set_pts(dec_frame.pts - *start_pts);
+      encode_frame_and_write_to_output(
+        Some(&dec_frame),
+        &mut output_ctx,
+        &mut enc_audio_ctx,
+        out_audio_steam_index,
+        out_audio_stream_time_base,
+      )
+      .map_err(|e| anyhow!("Error encoding and writing audio frame: {}", e))?;
+    }
   }
   Ok(())
 }
