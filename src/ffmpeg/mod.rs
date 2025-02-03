@@ -521,3 +521,102 @@ pub fn ffmpeg_copy(input_file: &str, output_file: &str) -> anyhow::Result<()> {
 
   Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+  use aya_dance_types::SongId;
+  use log::{info, warn};
+
+  use super::*;
+
+  pub async fn benchmark_on_mp4(
+    id: SongId,
+    video_file: String,
+  ) {
+    let audio_offset = 0.16666667;
+    let md5 = "".to_string();
+    let compensated = format!(
+      "{}/{}-{}-audio-offset-{}.mp4",
+      "wannadance-cache", id, md5, audio_offset
+    );
+    if !std::path::Path::new(compensated.as_str()).exists() {
+      if let Err(e) = std::fs::create_dir_all("wannadance-cache") {
+        warn!(
+          "Failed to create cache directory, serving original video: {:?}",
+          e
+        );
+        return;
+      }
+
+      let compensated_stage1 = format!(
+        "{}/{}-{}-audio-offset-{}-nocopy.mp4",
+        "wannadance-cache", id, md5, audio_offset
+      );
+
+      let start = std::time::Instant::now();
+      let stats = match ffmpeg_audio_compensation(
+        video_file.as_str(),
+        compensated_stage1.as_str(),
+        audio_offset,
+      ) {
+        Ok(stats) => stats,
+        Err(e) => {
+          warn!(
+            "Failed to compensate audio for song {}, serving original video: {:?}",
+            id, e
+          );
+          return;
+        }
+      };
+
+      info!(
+        "Compensate {} (ss+aac, {:.2}s, vcopy={:.3}s, adec={:.3}s, ares={:.3}s, aenc={:.3}s)",
+        id,
+        start.elapsed().as_secs_f64(),
+        stats.video_copy_secs,
+        stats.audio_decode_secs,
+        stats.audio_resample_secs,
+        stats.audio_encode_secs,
+      );
+
+      let start = std::time::Instant::now();
+      if let Err(e) = ffmpeg_copy(compensated_stage1.as_str(), compensated.as_str()) {
+        warn!(
+          "Failed to copy compensated audio for song {} (file: {}), serving original video: {:?}",
+          id, compensated_stage1, e
+        );
+        return;
+      }
+
+      info!(
+        "Compensate {} (copy,   {:.2}s)",
+        id,
+        start.elapsed().as_secs_f64(),
+      );
+
+      if let Err(e) = std::fs::remove_file(compensated_stage1.as_str()) {
+        warn!(
+          "Failed to remove temporary file {}: {:?}",
+          compensated_stage1, e
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn benchmark() {
+    tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .build()
+      .unwrap()
+      .block_on(async {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+          .filter(Some("warp::server"), log::LevelFilter::Off)
+          .init();
+        
+        // Remove "114514--audio-offset-0.16666667.mp4" before running this test
+        std::fs::remove_file("wannadance-cache/114514--audio-offset-0.16666667.mp4").unwrap_or_default();
+        benchmark_on_mp4(114514, "wannadance-song/114514/video.mp4".to_string()).await;
+      });
+  }
+}
