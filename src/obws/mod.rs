@@ -230,7 +230,7 @@ async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
       let (tx, rx) = std_mpsc::channel();
       let mut watcher: RecommendedWatcher = match Watcher::new(
         tx,
-        notify::Config::default().with_poll_interval(Duration::from_secs(30)),
+        notify::Config::default().with_poll_interval(Duration::from_secs(60)),
       ) {
         Ok(w) => w,
         Err(e) => {
@@ -248,7 +248,13 @@ async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
 
       for res in rx {
         match res {
-          Ok(event) if event.kind == notify::EventKind::Create(notify::event::CreateKind::File) => {
+          Ok(event) => {
+            // ignore non-create events
+            match event.kind {
+              notify::EventKind::Create(_) => (),
+              _ => continue,
+            }
+            // ignore non-log files
             for path in event.paths {
               if is_log_file(&path) {
                 log::info!("VRC created new log file, watching it: {:?}", path);
@@ -259,13 +265,11 @@ async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
           Err(e) => {
             log::warn!("VRC log folder notifier error: {:?}", e);
           }
-          _ => (),
         }
       }
     });
   }
 
-  // 在异步任务中接收新文件事件，并启动 tail 任务
   while let Some(new_path) = new_file_rx.recv().await {
     let tx = log_tx.clone();
     tokio::spawn(tail_file(new_path, tx));
