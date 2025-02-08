@@ -146,18 +146,18 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
 }
 
 pub async fn serve_obws(obs_host: String, obs_port: u16) -> anyhow::Result<()> {
-  log::info!("Connecting to OBS WebSocket {}:{}", obs_host, obs_port);
-  let obs_client = match obws::Client::connect(obs_host, obs_port, None as Option<&str>).await {
-    Ok(client) => client,
-    Err(e) => {
-      log::warn!("Failed to connect to OBS WebSocket: {:?}", e);
-      loop {
-        tokio::time::sleep(Duration::from_secs(60)).await;
+  loop {
+    log::info!("Connecting to OBS WebSocket {}:{}", obs_host, obs_port);
+    match obws::Client::connect(obs_host.clone(), obs_port, None as Option<&str>).await {
+      Ok(client) => {
+        let _ = serve_obws_impl(client).await;
+      }
+      Err(e) => {
+        log::warn!("Failed to connect to OBS WebSocket: {:?}, retry in 60s", e);
       }
     }
-  };
-
-  serve_obws_impl(obs_client).await
+    tokio::time::sleep(Duration::from_secs(60)).await;
+  }
 }
 
 async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
