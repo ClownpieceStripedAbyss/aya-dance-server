@@ -85,7 +85,7 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
     let mut line = String::new();
     match reader.read_line(&mut line).await {
       Ok(0) => {
-        sleep(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(1000)).await;
       }
       Ok(_) => {
         // [VRCX] VideoPlay(PyPyDance) "https://api.udon.dance/Api/Songs/play?id=222",0,114514,"$https://api.udon.dance/Api/Songs/play?id=222 (imkiva)"
@@ -139,7 +139,7 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
 
       Err(e) => {
         log::warn!("Failed to read line from file {:?}: {:?}", path, e);
-        sleep(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(1000)).await;
       }
     }
   }
@@ -161,7 +161,7 @@ pub async fn serve_obws(obs_host: String, obs_port: u16) -> anyhow::Result<()> {
 }
 
 async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
-  log::info!("OBS WebSocket Connnected");
+  log::info!("OBS WebSocket connected");
   let (log_tx, mut log_rx) = mpsc::channel::<LogLine>(100);
 
   tokio::spawn(async move {
@@ -188,7 +188,7 @@ async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
           }
         }),
       };
-      
+
       log::info!("Updating OBS text source: {} = {}", input_name, text);
 
       if let Err(e) = obs_client
