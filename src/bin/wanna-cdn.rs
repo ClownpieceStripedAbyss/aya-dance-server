@@ -108,6 +108,17 @@ async fn main() {
       (tokio::task::spawn(async { Ok(()) }), false)
     }
   };
+  
+  let (obws, obws_enabled) = match (&opts.obws_host, opts.obws_port) {
+    (Some(host), port) => {
+      let obws = tokio::spawn(wanna_cdn::obws::serve_obws(host.clone(), port));
+      (obws, true)
+    }
+    _ => {
+      info!("OBS WebSocket server disabled");
+      (tokio::task::spawn(async { Ok(()) }), false)
+    }
+  };
 
   tokio::select! {
       e = l4, if l4_enabled => {
@@ -115,6 +126,13 @@ async fn main() {
               Ok(Ok(_)) => info!("SNI proxy exited successfully"),
               Ok(Err(e)) => warn!("SNI proxy exited with error: {}", e),
               Err(e) => warn!("SNI proxy exited with error: {}", e),
+          }
+      },
+      e = obws, if obws_enabled => {
+          match e {
+              Ok(Ok(_)) => info!("OBS WebSocket exited successfully"),
+              Ok(Err(e)) => warn!("OBS WebSocket exited with error: {}", e),
+              Err(e) => warn!("OBS WebSocket exited with error: {}", e),
           }
       },
       e = rtsp, if opts.rtsp_listen.is_some() => {

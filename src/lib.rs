@@ -19,6 +19,7 @@ pub mod http;
 pub mod index;
 pub mod rtsp;
 pub mod types;
+pub mod obws;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -63,6 +64,11 @@ pub struct AppOpts {
 
   #[clap(long, env, default_value = "0")]
   pub audio_compensation: f64,
+
+  #[clap(long, env)]
+  pub obws_host: Option<String>,
+  #[clap(long, env, default_value = "4455")]
+  pub obws_port: u16,
 }
 
 #[derive(Debug)]
