@@ -108,7 +108,7 @@ async fn main() {
       (tokio::task::spawn(async { Ok(()) }), false)
     }
   };
-  
+
   let (obws, obws_enabled) = match (&opts.obws_host, opts.obws_port) {
     (Some(host), port) => {
       let obws = tokio::spawn(wanna_cdn::obws::serve_obws(host.clone(), port));

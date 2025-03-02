@@ -118,11 +118,13 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
           || line.contains("OnDeserialization: syncedQueuedInfoJson = ")
         {
           let json = if line.contains("OnPreSerialization: queue info serialized: ") {
-            line.splitn(2, "OnPreSerialization: queue info serialized: ")
+            line
+              .splitn(2, "OnPreSerialization: queue info serialized: ")
               .nth(1)
               .unwrap_or("[]")
           } else {
-            line.splitn(2, "OnDeserialization: syncedQueuedInfoJson = ")
+            line
+              .splitn(2, "OnDeserialization: syncedQueuedInfoJson = ")
               .nth(1)
               .unwrap_or("[]")
           };

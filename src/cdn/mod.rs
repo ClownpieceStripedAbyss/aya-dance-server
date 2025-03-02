@@ -16,6 +16,7 @@ pub mod receipt;
 #[derive(Debug)]
 pub struct CdnServiceImpl {
   pub video_path: String,
+  pub video_override_path: String,
   pub cache_path: String,
 }
 
@@ -23,9 +24,10 @@ pub type CdnService = Arc<CdnServiceImpl>;
 pub type CdnFetchToken = UuidString;
 
 impl CdnServiceImpl {
-  pub fn new(video_path: String, cache_path: String) -> CdnService {
+  pub fn new(video_path: String, video_override_path: String, cache_path: String) -> CdnService {
     Arc::new(CdnServiceImpl {
       video_path,
+      video_override_path,
       cache_path,
     })
   }
@@ -37,13 +39,56 @@ pub enum CdnFetchResult {
   Miss,
 }
 
+#[derive(Debug, Clone)]
+pub enum CachedVideo {
+  Video {
+    video_file: String,
+    metadata_json_file: String,
+  },
+  VideoOverride {
+    video_file: String,
+  },
+}
+
+#[derive(Debug, Clone)]
+pub enum CachedVideoFile {
+  Available(CachedVideo),
+  Unavailable {
+    video_file: String,
+    metadata_json_file: String,
+  },
+}
+
+impl CachedVideo {
+  pub fn video_file(&self) -> String {
+    match self {
+      CachedVideo::Video { video_file, .. } => video_file.clone(),
+      CachedVideo::VideoOverride { video_file } => video_file.clone(),
+    }
+  }
+}
+
 impl CdnServiceImpl {
-  pub async fn get_video_file_path(&self, id: SongId) -> (String, String, bool) {
+  pub async fn get_video_file_path(&self, id: SongId) -> CachedVideoFile {
     let metadata_json = format!("{}/{}/metadata.json", self.video_path, id);
     let video_mp4 = format!("{}/{}/video.mp4", self.video_path, id);
-    let available =
-      std::path::Path::new(&metadata_json).exists() && std::path::Path::new(&video_mp4).exists();
-    (video_mp4, metadata_json, available)
+    let override_mp4 = format!("{}/{}.mp4", self.video_override_path, id);
+
+    if std::path::Path::new(&override_mp4).exists() {
+      return CachedVideoFile::Available(CachedVideo::VideoOverride {
+        video_file: override_mp4,
+      });
+    }
+    if std::path::Path::new(&metadata_json).exists() && std::path::Path::new(&video_mp4).exists() {
+      return CachedVideoFile::Available(CachedVideo::Video {
+        video_file: video_mp4,
+        metadata_json_file: metadata_json,
+      });
+    }
+    CachedVideoFile::Unavailable {
+      video_file: video_mp4,
+      metadata_json_file: metadata_json,
+    }
   }
 
   pub async fn serve_file(
@@ -54,16 +99,17 @@ impl CdnServiceImpl {
   ) -> Result<Option<String>> {
     match token {
       Some(token) => self.serve_file_auth(id, token, remote).await,
-      None => {
-        let (video, _, avail) = self
-          .serve_file_no_auth(id.ok_or_else(|| anyhow!("missing song id"))?)
-          .await;
-        Ok(avail.then(|| video))
-      }
+      None => match self
+        .serve_file_no_auth(id.ok_or_else(|| anyhow!("missing song id"))?)
+        .await
+      {
+        CachedVideoFile::Available(video) => Ok(Some(video.video_file())),
+        _ => Ok(None),
+      },
     }
   }
 
-  async fn serve_file_no_auth(&self, id: SongId) -> (String, String, bool) {
+  async fn serve_file_no_auth(&self, id: SongId) -> CachedVideoFile {
     trace!("serve_file_no_auth: id={}", id);
     self.get_video_file_path(id).await
   }
@@ -94,18 +140,19 @@ impl CdnServiceImpl {
       _ => (),
     }
 
-    let (video, _, avail) = self.get_video_file_path(id_in_token).await;
-    Ok(avail.then(|| video))
+    match self.get_video_file_path(id_in_token).await {
+      CachedVideoFile::Available(video) => Ok(Some(video.video_file())),
+      _ => Ok(None),
+    }
   }
 
   pub async fn serve_token(&self, id: SongId, remote: IpAddr) -> Result<CdnFetchResult> {
     trace!("serve_token: id={}, client={}", id, remote);
     let token = token_for_song_id(id);
 
-    let (_, _, avail) = self.get_video_file_path(id).await;
-    match avail {
-      true => Ok(CdnFetchResult::Hit(token)),
-      false => Ok(CdnFetchResult::Miss),
+    match self.get_video_file_path(id).await {
+      CachedVideoFile::Available(_) => Ok(CdnFetchResult::Hit(token)),
+      _ => Ok(CdnFetchResult::Miss),
     }
   }
 
@@ -118,30 +165,47 @@ impl CdnServiceImpl {
     remote: std::net::SocketAddr,
   ) -> (String, String, String, bool) {
     let download_tmp_file = format!("{}/{}_{}", self.cache_path, remote.port(), file);
-    let (video, metadata_json, avail) = self.get_video_file_path(id).await;
-    if !avail {
-      return (download_tmp_file, video, metadata_json, false);
-    }
-    if std::fs::metadata(&video).map(|x| x.len()).unwrap_or(0) != size {
-      return (download_tmp_file, video, metadata_json, false);
-    }
-    let reader = match std::fs::File::open(&metadata_json) {
-      Ok(f) => f,
-      Err(e) => {
-        log::warn!("Failed to open metadata file {}: {}", metadata_json, e);
-        return (download_tmp_file, video, metadata_json, false);
+    match self.get_video_file_path(id).await {
+      // Always serve the override file if it exists
+      CachedVideoFile::Available(CachedVideo::VideoOverride { video_file }) => {
+        (download_tmp_file, video_file, "".to_string(), true)
       }
-    };
-    let x: aya_dance_types::Song = match serde_json::from_reader(reader) {
-      Ok(x) => x,
-      Err(e) => {
-        log::warn!("Failed to parse metadata file {}: {}", metadata_json, e);
-        return (download_tmp_file, video, metadata_json, false);
+      // Local cache found and it's not an override, check if it's the correct file
+      CachedVideoFile::Available(CachedVideo::Video {
+        video_file,
+        metadata_json_file,
+      }) => {
+        if std::fs::metadata(&video_file).map(|x| x.len()).unwrap_or(0) != size {
+          return (download_tmp_file, video_file, metadata_json_file, false);
+        }
+        let reader = match std::fs::File::open(&metadata_json_file) {
+          Ok(f) => f,
+          Err(e) => {
+            log::warn!("Failed to open metadata file {}: {}", metadata_json_file, e);
+            return (download_tmp_file, video_file, metadata_json_file, false);
+          }
+        };
+        let x: aya_dance_types::Song = match serde_json::from_reader(reader) {
+          Ok(x) => x,
+          Err(e) => {
+            log::warn!(
+              "Failed to parse metadata file {}: {}",
+              metadata_json_file,
+              e
+            );
+            return (download_tmp_file, video_file, metadata_json_file, false);
+          }
+        };
+        match x.checksum {
+          Some(x) if x == md5 => (download_tmp_file, video_file, metadata_json_file, true),
+          _ => (download_tmp_file, video_file, metadata_json_file, false),
+        }
       }
-    };
-    match x.checksum {
-      Some(x) if x == md5 => (download_tmp_file, video, metadata_json, true),
-      _ => (download_tmp_file, video, metadata_json, false),
+      // Video isn't found, just tell our caller to download it
+      CachedVideoFile::Unavailable {
+        video_file,
+        metadata_json_file,
+      } => (download_tmp_file, video_file, metadata_json_file, false),
     }
   }
 }

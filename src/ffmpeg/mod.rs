@@ -529,10 +529,7 @@ mod tests {
 
   use super::*;
 
-  pub async fn benchmark_on_mp4(
-    id: SongId,
-    video_file: String,
-  ) {
+  pub async fn benchmark_on_mp4(id: SongId, video_file: String) {
     let audio_offset = 0.16666667;
     let md5 = "".to_string();
     let compensated = format!(
@@ -613,9 +610,10 @@ mod tests {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
           .filter(Some("warp::server"), log::LevelFilter::Off)
           .init();
-        
+
         // Remove "114514--audio-offset-0.16666667.mp4" before running this test
-        std::fs::remove_file("wannadance-cache/114514--audio-offset-0.16666667.mp4").unwrap_or_default();
+        std::fs::remove_file("wannadance-cache/114514--audio-offset-0.16666667.mp4")
+          .unwrap_or_default();
         benchmark_on_mp4(114514, "wannadance-song/114514/video.mp4".to_string()).await;
       });
   }

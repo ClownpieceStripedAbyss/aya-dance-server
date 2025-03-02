@@ -17,9 +17,9 @@ pub mod ffmpeg;
 pub mod forward;
 pub mod http;
 pub mod index;
+pub mod obws;
 pub mod rtsp;
 pub mod types;
-pub mod obws;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -31,6 +31,8 @@ pub struct AppOpts {
   pub video_path_ud: String,
   #[clap(long, env, default_value = "./wannadance-cache")]
   pub cache_path_ud: String,
+  #[clap(long, env, default_value = "./wannadance-override")]
+  pub video_override_path_ud: String,
 
   #[clap(long, env, default_value = "ud-play.kiva.moe")]
   pub cache_upstream_ud_oversea: String,
@@ -83,7 +85,11 @@ pub type AppService = Arc<AppServiceImpl>;
 
 impl AppServiceImpl {
   pub async fn new(opts: AppOpts) -> Result<AppService> {
-    let cdn = CdnServiceImpl::new(opts.video_path_ud.clone(), opts.cache_path_ud.clone());
+    let cdn = CdnServiceImpl::new(
+      opts.video_path_ud.clone(),
+      opts.video_override_path_ud.clone(),
+      opts.cache_path_ud.clone(),
+    );
     let typewriter = Arc::new(TypewriterServiceImpl::default());
     let receipt = ReceiptServiceImpl::new(
       opts.receipt_max_per_user_per_sender,

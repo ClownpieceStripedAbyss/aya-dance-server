@@ -17,7 +17,7 @@ use crate::{
   cdn::{
     proxy::{InspectingOpts, ProxyOpts},
     receipt::{RoomId, UserId},
-    CdnFetchResult,
+    CachedVideo, CachedVideoFile, CdnFetchResult,
   },
   ffmpeg::{ffmpeg_audio_compensation, ffmpeg_copy},
   types::SongId,
@@ -571,7 +571,25 @@ pub async fn serve_video_mp4(
     let md5 = match md5 {
       Some(m) => m,
       None => match app.cdn.get_video_file_path(id).await {
-        (_, metadata_json, avail) if avail => std::fs::File::open(metadata_json)
+        CachedVideoFile::Available(CachedVideo::VideoOverride { video_file }) => {
+          // Now get the file's last modified time to be the checksum
+          let last_modified = std::fs::metadata(video_file.as_str())
+            .map_err(|e| anyhow::anyhow!("Failed to get metadata: {:?}", e))
+            .and_then(|m| {
+              m.modified()
+                .map_err(|e| anyhow::anyhow!("Failed to get modified time: {:?}", e))
+            })
+            .and_then(|t| {
+              t.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .map_err(|e| anyhow::anyhow!("Failed to get duration since epoch: {:?}", e))
+            })
+            .and_then(|d| Ok(d.as_secs().to_string()))
+            .unwrap_or_default();
+          format!("override-{}", last_modified)
+        }
+        CachedVideoFile::Available(CachedVideo::Video {
+          metadata_json_file, ..
+        }) => std::fs::File::open(metadata_json_file)
           .map_err(|e| anyhow::anyhow!("Failed to open metadata: {:?}", e))
           .and_then(|f| {
             serde_json::from_reader::<_, aya_dance_types::Song>(f)
@@ -582,7 +600,7 @@ pub async fn serve_video_mp4(
               .ok_or_else(|| anyhow::anyhow!("No checksum in metadata"))
           })
           .unwrap_or_default(),
-        _ => "".to_string(),
+        CachedVideoFile::Unavailable { .. } => "".to_string(),
       },
     };
     let compensated = format!(
