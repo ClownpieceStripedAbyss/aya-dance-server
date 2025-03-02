@@ -122,16 +122,20 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
               .splitn(2, "OnPreSerialization: queue info serialized: ")
               .nth(1)
               .unwrap_or("[]")
+              .trim()
+              .trim_end_matches("</color>")
           } else {
             line
               .splitn(2, "OnDeserialization: syncedQueuedInfoJson = ")
               .nth(1)
               .unwrap_or("[]")
+              .trim()
+              .trim_end_matches("</color>")
           };
           let queue_item: Vec<QueueItem> = match serde_json::from_str(json) {
             Ok(item) => item,
             Err(e) => {
-              log::warn!("Failed to parse queue item: {:?}", e);
+              log::warn!("Failed to parse queue item from json: {:?}, json: {}", e, json);
               continue;
             }
           };
