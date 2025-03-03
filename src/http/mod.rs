@@ -351,6 +351,24 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
               "git_hash": crate::my_git_hash(),
             }),
           );
+          // Scan override dir for <id>.mp4
+          let override_dir = app.opts.video_override_path_ud.clone();
+          let mut override_ids = vec![];
+          if let Ok(entries) = std::fs::read_dir(override_dir) {
+            for entry in entries {
+              if let Ok(entry) = entry {
+                if let Ok(file_name) = entry.file_name().into_string() {
+                  if let Ok(id) = file_name.trim_end_matches(".mp4").parse::<SongId>() {
+                    override_ids.push(id);
+                  }
+                }
+              }
+            }
+          }
+          map.insert(
+            "WDSelfHostedCDNOverride".to_string(),
+            serde_json::to_value(&override_ids).unwrap(),
+          );
         }
         Ok::<_, Rejection>(
           builder.body(
