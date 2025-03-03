@@ -38,6 +38,8 @@ pub struct AppOpts {
   pub cache_upstream_ud_oversea: String,
   #[clap(long, env, default_value = "ud-nya.kiva.moe")]
   pub cache_upstream_ud_domestic: String,
+  #[clap(long, env, default_value = "ud-orig.kiva.moe")]
+  pub api_upstream_ud: String,
 
   #[clap(short = 'l', long, env, default_value = "0.0.0.0:80")]
   pub listen: String,
@@ -47,7 +49,7 @@ pub struct AppOpts {
     long,
     env,
     value_delimiter = ',',
-    default_value = "api.udon.dance=ud-orig.kiva.moe:443,nya.xin.moe=ud-nya.kiva.moe:443"
+    default_value = "api.udon.dance=ud-orig.kiva.moe:443,nya.xin.moe=ud-nya.kiva.moe:443,play.udon.dance=ud-play.kiva.moe:443"
   )]
   pub builtin_sni_proxy: Option<Vec<String>>,
 

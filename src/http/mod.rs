@@ -275,6 +275,92 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
       },
     );
 
+  // http://api.udon.dance/Api/Songs/list
+  let wanna_dance_song_list = warp::path!("Api" / "Songs" / "list")
+    .and(with_service(&app))
+    .and(warp::header::headers_cloned())
+    .and(warp::body::bytes())
+    .and_then(
+      |app: AppService, _headers: warp::http::HeaderMap, body: bytes::Bytes| async move {
+        info!("[HIT] /Api/Songs/list");
+        let response = crate::cdn::proxy::proxy_and_inspecting(
+          format!("http://{}/Api/Songs/list", app.opts.api_upstream_ud),
+          reqwest::Method::GET,
+          {
+            let mut hdr = warp::http::HeaderMap::new();
+            hdr.insert(
+              warp::http::header::USER_AGENT,
+              warp::http::header::HeaderValue::from_str(
+                "curl/8.7.1",
+              )
+              .unwrap(),
+            );
+            hdr.insert(
+              warp::http::header::ACCEPT,
+              warp::http::header::HeaderValue::from_str(
+                "*/*",
+              )
+              .unwrap(),
+            );
+            hdr.insert(
+              warp::http::header::HOST,
+              warp::http::header::HeaderValue::from_str(
+                "api.udon.dance",
+              )
+              .unwrap(),
+            );
+            hdr
+          },
+          body,
+          ProxyOpts {
+            host_override: Some("api.udon.dance".to_string()),
+            user_agent_override: Some(format!(
+              "WannaDanceSelfHostedCDN/{}.{}",
+              crate::MY_VERSION_ID,
+              crate::my_git_hash(),
+            )),
+            allow_304: app.opts.proxy_allow_304,
+          },
+          None,
+        )
+        .await?;
+        
+        let mut builder = warp::http::Response::builder();
+        builder = builder.status(response.status());
+        for (k, v) in response.headers().iter() {
+          let kk = k.to_string();
+          let vv = v
+            .to_str()
+            .map_err(|e| crate::cdn::proxy::errors::Error::String(e.to_string()))?
+            .to_string();
+          builder = builder.header(kk, vv);
+        }
+        let body_bytes = warp::hyper::body::to_bytes(response.into_body())
+          .await
+          .map_err(|e| crate::cdn::proxy::errors::Error::String(e.to_string()))?;
+        let body_string = String::from_utf8(body_bytes.to_vec())
+          .map_err(|e| crate::cdn::proxy::errors::Error::String(e.to_string()))?;
+        let mut body_json = serde_json::from_str::<serde_json::Value>(&body_string)
+          .map_err(|e| crate::cdn::proxy::errors::Error::String(e.to_string()))?;
+        // Now inserts a dedicated field for the CDN
+        if let Some(map) = body_json.as_object_mut() {
+          map.insert(
+            "WDSelfHostedCDN".to_string(),
+            json!({
+              "version": crate::MY_VERSION_ID,
+              "git_hash": crate::my_git_hash(),
+            }),
+          );
+        }
+        Ok::<_, Rejection>(
+          builder.body(
+            serde_json::to_string_pretty(&body_json)
+              .map_err(|e| crate::cdn::proxy::errors::Error::String(e.to_string()))?,
+          ),
+        )
+      },
+    );
+
   // https://api.udon.dance/Api/..
   let wanna_dance_other_api = warp::path!("Api" / ..)
     .and(warp::path::full())
@@ -282,7 +368,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .and(with_service(&app))
     .and_then(|full: FullPath, _app: AppService| async move {
       let path = format!("{}", full.as_str());
-      debug!("GET {}", path);
+      debug!("[Catch] GET {}", path);
       // Redirect to https://api.udon.dance
       let location = format!("https://api.udon.dance{}", path);
       Ok::<_, Rejection>(
@@ -392,6 +478,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
 
   let wanna_dance = wanna_dance_play
     .or(wanna_dance_play_cache)
+    .or(wanna_dance_song_list)
     .or(wanna_dance_other_api);
 
   // Typewriter gateway
