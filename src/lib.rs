@@ -64,8 +64,8 @@ pub struct AppOpts {
   pub admin_src_host: Option<Vec<String>>,
   #[clap(long, env, default_value = "3600")]
   pub token_valid_seconds: i64,
-  #[clap(long, env)]
-  pub token_sign_secret: Option<String>,
+  #[clap(long, env, default_value = "IrellyREALLYwannaDanceWITHyou")]
+  pub token_sign_secret: String,
 
   #[clap(long, env, default_value = "false")]
   pub proxy_allow_304: bool,

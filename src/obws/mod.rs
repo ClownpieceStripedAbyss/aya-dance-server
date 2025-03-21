@@ -135,7 +135,11 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
           let queue_item: Vec<QueueItem> = match serde_json::from_str(json) {
             Ok(item) => item,
             Err(e) => {
-              log::warn!("Failed to parse queue item from json: {:?}, json: {}", e, json);
+              log::warn!(
+                "Failed to parse queue item from json: {:?}, json: {}",
+                e,
+                json
+              );
               continue;
             }
           };

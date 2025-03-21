@@ -2,7 +2,6 @@ use std::{net::IpAddr, sync::Arc};
 
 use anyhow::anyhow;
 use log::trace;
-use uuid::Uuid;
 
 use crate::{
   types::{SongId, UuidString},
@@ -19,7 +18,7 @@ pub struct CdnServiceImpl {
   pub video_override_path: String,
   pub cache_path: String,
   pub token_valid_seconds: i64,
-  pub token_sign_secret: Option<String>,
+  pub token_sign_secret: String,
 }
 
 pub type CdnService = Arc<CdnServiceImpl>;
@@ -30,7 +29,13 @@ pub type SignTimestampType = String;
 pub type SignType = String;
 
 impl CdnServiceImpl {
-  pub fn new(video_path: String, video_override_path: String, cache_path: String, token_valid_seconds: i64, token_sign_secret: Option<String>) -> CdnService {
+  pub fn new(
+    video_path: String,
+    video_override_path: String,
+    cache_path: String,
+    token_valid_seconds: i64,
+    token_sign_secret: String,
+  ) -> CdnService {
     Arc::new(CdnServiceImpl {
       video_path,
       video_override_path,
@@ -43,7 +48,13 @@ impl CdnServiceImpl {
 
 #[derive(Debug, Clone)]
 pub enum CdnFetchResult {
-  Hit(CdnFetchToken, ChecksumType, TimestampType, Option<(SignType, SignTimestampType)>),
+  Hit(
+    CdnFetchToken,
+    ChecksumType,
+    TimestampType,
+    SignType,
+    SignTimestampType,
+  ),
   Miss,
 }
 
@@ -77,7 +88,10 @@ impl CachedVideo {
 }
 
 impl CdnServiceImpl {
-  pub async fn get_video_file_checksum_by_cached_video(&self, cached_video: &CachedVideo) -> Result<ChecksumType> {
+  pub async fn get_video_file_checksum_by_cached_video(
+    &self,
+    cached_video: &CachedVideo,
+  ) -> Result<ChecksumType> {
     match cached_video {
       CachedVideo::VideoOverride { video_file } => {
         // Now get the file's last modified time to be the checksum
@@ -94,28 +108,32 @@ impl CdnServiceImpl {
           .and_then(|d| Ok(d.as_secs().to_string()))
           .map(|last_modified| format!("override{}", last_modified))
       }
-      CachedVideo::Video { metadata_json_file, .. } => {
-        std::fs::File::open(metadata_json_file)
-          .map_err(|e| anyhow::anyhow!("Failed to open metadata: {:?}", e))
-          .and_then(|f| {
-            serde_json::from_reader::<_, aya_dance_types::Song>(f)
-              .map_err(|e| anyhow::anyhow!("Failed to parse metadata: {:?}", e))
-          })
-          .and_then(|s| {
-            s.checksum
-              .ok_or_else(|| anyhow::anyhow!("No checksum in metadata"))
-          })
-      }
+      CachedVideo::Video {
+        metadata_json_file, ..
+      } => std::fs::File::open(metadata_json_file)
+        .map_err(|e| anyhow::anyhow!("Failed to open metadata: {:?}", e))
+        .and_then(|f| {
+          serde_json::from_reader::<_, aya_dance_types::Song>(f)
+            .map_err(|e| anyhow::anyhow!("Failed to parse metadata: {:?}", e))
+        })
+        .and_then(|s| {
+          s.checksum
+            .ok_or_else(|| anyhow::anyhow!("No checksum in metadata"))
+        }),
     }
   }
-  
+
   pub async fn get_video_file_checksum_by_id(&self, id: SongId) -> Result<ChecksumType> {
     match self.get_video_file_path(id).await {
-      CachedVideoFile::Available(cached_video) => self.get_video_file_checksum_by_cached_video(&cached_video).await,
+      CachedVideoFile::Available(cached_video) => {
+        self
+          .get_video_file_checksum_by_cached_video(&cached_video)
+          .await
+      }
       CachedVideoFile::Unavailable { .. } => Err(anyhow!("video file not found")),
     }
   }
-  
+
   pub async fn get_video_file_path(&self, id: SongId) -> CachedVideoFile {
     let metadata_json = format!("{}/{}/metadata.json", self.video_path, id);
     let video_mp4 = format!("{}/{}/video.mp4", self.video_path, id);
@@ -140,7 +158,7 @@ impl CdnServiceImpl {
 
   pub async fn serve_file(
     &self,
-    id: Option<SongId>,
+    id: SongId,
     token: Option<String>,
     remote: IpAddr,
   ) -> Result<Option<CachedVideo>> {
@@ -150,10 +168,10 @@ impl CdnServiceImpl {
     }
   }
 
-  async fn serve_file_no_auth(&self, id: Option<SongId>) -> Result<Option<CachedVideo>> {
+  async fn serve_file_no_auth(&self, id: SongId) -> Result<Option<CachedVideo>> {
     trace!("serve_file_no_auth: id={:?}", id);
-    
-    match self.get_video_file_path(id.ok_or_else(|| anyhow!("missing song id"))?).await {
+
+    match self.get_video_file_path(id).await {
       CachedVideoFile::Available(video) => Ok(Some(video)),
       _ => Ok(None),
     }
@@ -161,57 +179,100 @@ impl CdnServiceImpl {
 
   async fn serve_file_auth(
     &self,
-    id: Option<SongId>,
+    id: SongId,
     token: String,
     remote: IpAddr,
   ) -> Result<Option<CachedVideo>> {
     trace!("serve_file: token={}, client={}", token, remote);
 
-    // Get the song id from the token
-    let (id_in_token, ts_in_token) = match song_id_for_token(&token) {
-      Some(id) => id,
-      None => return Err(anyhow!("wrong token format")),
-    };
+    Self::verify_token(
+      &token,
+      &self.token_sign_secret,
+      id,
+      &self.get_video_file_checksum_by_id(id).await?,
+      self.token_valid_seconds,
+    )?;
 
-    // If provided, the song id must match the one in the token
-    match id {
-      Some(id) if id != id_in_token => {
-        return Err(anyhow!(
-          "song id mismatch: {} (id) != {} (id in token)",
-          id,
-          id_in_token
-        ));
-      }
-      _ => (),
-    }
-    // If timestamp is provided, it must not expire
-    if self.token_valid_seconds != 0 && ts_in_token + self.token_valid_seconds < chrono::Utc::now().timestamp() {
-      return Err(anyhow!("token expired"));
-    }
-
-    match self.get_video_file_path(id_in_token).await {
+    match self.get_video_file_path(id).await {
       CachedVideoFile::Available(video) => Ok(Some(video)),
       _ => Ok(None),
     }
   }
 
+  fn encode_token(sign: &SignType, sign_ts: &SignTimestampType) -> String {
+    format!("{}-{}", sign, sign_ts)
+  }
+
+  fn decode_token(token: &str) -> Result<(SignType, SignTimestampType)> {
+    let mut parts = token.split('-');
+    let sign = parts.next().ok_or_else(|| anyhow!("missing sign"))?;
+    let sign_ts = parts
+      .next()
+      .ok_or_else(|| anyhow!("missing sign timestamp"))?;
+    Ok((sign.to_string(), sign_ts.to_string()))
+  }
+
+  fn generate_sign(
+    secret: &str,
+    id: SongId,
+    checksum: &ChecksumType,
+    sign_ts: &SignTimestampType,
+  ) -> String {
+    let sign_plain = format!("{}/v/{}-{}.mp4{}", secret, id, checksum, sign_ts);
+    format!("{:x}", md5::compute(sign_plain))
+  }
+
+  fn verify_token(
+    token: &str,
+    secret: &str,
+    id: SongId,
+    checksum: &ChecksumType,
+    token_valid_seconds: i64,
+  ) -> Result<()> {
+    let (sign, sign_ts) = Self::decode_token(token)?;
+    let sign_verify = Self::generate_sign(secret, id, checksum, &sign_ts);
+    if sign_verify != sign {
+      return Err(anyhow!(
+        "token mismatch: provided={}, wanted={}",
+        sign,
+        sign_verify
+      ));
+    }
+    let provided_ts = i64::from_str_radix(&sign_ts, 16)?;
+    let now = chrono::Utc::now().timestamp();
+    if now - provided_ts > token_valid_seconds {
+      return Err(anyhow!(
+        "token expired: now={}, provided={}, diff={}, tolerance={}",
+        now,
+        provided_ts,
+        now - provided_ts,
+        token_valid_seconds
+      ));
+    }
+    Ok(())
+  }
+
   pub async fn serve_token(&self, id: SongId, remote: IpAddr) -> Result<CdnFetchResult> {
     trace!("serve_token: id={}, client={}", id, remote);
-    let (token, ts) = token_for_song_id(id);
 
     match self.get_video_file_path(id).await {
-      CachedVideoFile::Available(video) => match self.get_video_file_checksum_by_cached_video(&video).await {
-        Ok(checksum) => {
-          let sign_ts = format!("{:08X}", ts);
-          let sign = self.token_sign_secret.as_ref().map(|secret| {
-            let sign_text = format!("{}/v/{}-{}.mp4{}", secret, id, checksum, sign_ts);
-            format!("{:x}", md5::compute(sign_text))
-          });
-          Ok(CdnFetchResult::Hit(token, checksum, ts, sign.map(|s| (s, sign_ts))))
-        },
-        Err(e) => {
-          log::warn!("Failed to get checksum for video file, will force a cache-miss: {}: {}", video.video_file(), e);
-          Ok(CdnFetchResult::Miss)
+      CachedVideoFile::Available(video) => {
+        match self.get_video_file_checksum_by_cached_video(&video).await {
+          Ok(checksum) => {
+            let ts = chrono::Utc::now().timestamp();
+            let sign_ts = format!("{:08X}", ts);
+            let sign = Self::generate_sign(&self.token_sign_secret, id, &checksum, &sign_ts);
+            let token = Self::encode_token(&sign, &sign_ts);
+            Ok(CdnFetchResult::Hit(token, checksum, ts, sign, sign_ts))
+          }
+          Err(e) => {
+            log::warn!(
+              "Failed to get checksum for video file, will force a cache-miss: {}: {}",
+              video.video_file(),
+              e
+            );
+            Ok(CdnFetchResult::Miss)
+          }
         }
       }
       _ => Ok(CdnFetchResult::Miss),
@@ -269,27 +330,5 @@ impl CdnServiceImpl {
         metadata_json_file,
       } => (download_tmp_file, video_file, metadata_json_file, false),
     }
-  }
-}
-
-fn token_for_song_id(song_id: SongId) -> (String, TimestampType) {
-  let uuid = Uuid::new_v4().to_string();
-  // We use a simple encoding to avoid exposing the actual song id.
-  // By converting the song id to a fixed-length string.
-  let ts = chrono::Utc::now().timestamp();
-  (format!("{}{:08x}{:016x}", uuid, song_id, ts), ts)
-}
-
-fn song_id_for_token(token: &str) -> Option<(SongId, TimestampType)> {
-  if token.len() < 36 {
-    return None;
-  }
-  let (uuid, song_id_and_ts) = token.split_at(36);
-  if Uuid::parse_str(uuid).is_ok() {
-    let song_id = SongId::from_str_radix(&song_id_and_ts[0..8], 16).ok()?;
-    let ts = TimestampType::from_str_radix(&song_id_and_ts[8..], 16).ok()?;
-    Some((song_id, ts))
-  } else {
-    None
   }
 }

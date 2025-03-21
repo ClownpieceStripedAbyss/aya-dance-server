@@ -73,11 +73,14 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             );
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token, checksum, _, _) => {
+          CdnFetchResult::Hit(token, checksum, _ts, sign, sign_ts) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
-            format!("/v/{}-{}.mp4?auth={}&t=aya", id, checksum, token)
+            format!(
+              "/v/{}-{}.mp4?auth={}&t=aya&sign={}&time={}",
+              id, checksum, token, sign, sign_ts
+            )
           }
         };
         Ok::<_, Rejection>(
@@ -112,7 +115,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         let id = id_checksum[0]
           .parse::<SongId>()
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
-        let checksum_requested = id_checksum[1].to_string();
+        let _checksum_requested = id_checksum[1].to_string();
         let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
         let token = match qs.get("auth") {
           Some(token) => Some(token.clone()),
@@ -128,10 +131,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           Some(t) if t == "wd" => &app.cdn,
           _ => &app.cdn,
         };
-        let video = match backing_cdn
-          .serve_file(Some(id), token, remote.clone())
-          .await
-        {
+        let video = match backing_cdn.serve_file(id, token, remote.clone()).await {
           Ok(Some(video_file)) => video_file,
           Ok(None) => {
             warn!(
@@ -145,19 +145,6 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             return Err(warp::reject::custom(CustomRejection::BadToken));
           }
         };
-
-        let video_file_checksum = backing_cdn.get_video_file_checksum_by_cached_video(&video).await
-          .map_err(|e| {
-            warn!("Failed to get checksum for video file: {}: {}", video.video_file(), e.to_string());
-            warp::reject::custom(CustomRejection::VideoExpired)
-          })?;
-        if video_file_checksum != checksum_requested {
-          warn!(
-            "[MISS] Cache {} expired: checksum mismatch, client={}, requested={}, available={}",
-            id, remote, checksum_requested, video_file_checksum
-          );
-          return Err(warp::reject::custom(CustomRejection::VideoExpired));
-        }
 
         let video_file_path = video.video_file();
         info!("[HIT] Cache {} found: serving {}", id, video_file_path);
@@ -280,14 +267,14 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             // Not found in our CDN, let's redirect to api.udon.dance
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token, checksum, _ts, sign) => {
+          CdnFetchResult::Hit(token, checksum, _ts, sign, sign_ts) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
-            match sign {
-              Some((sign, sign_ts)) => format!("/v/{}-{}.mp4?auth={}&t=wd&sign={}&time={}", id, checksum, token, sign, sign_ts),
-              None => format!("/v/{}-{}.mp4?auth={}&t=wd", id, checksum, token),
-            }
+            format!(
+              "/v/{}-{}.mp4?auth={}&t=wd&sign={}&time={}",
+              id, checksum, token, sign, sign_ts
+            )
           }
         };
         Ok::<_, Rejection>(
@@ -314,24 +301,15 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             let mut hdr = warp::http::HeaderMap::new();
             hdr.insert(
               warp::http::header::USER_AGENT,
-              warp::http::header::HeaderValue::from_str(
-                "curl/8.7.1",
-              )
-              .unwrap(),
+              warp::http::header::HeaderValue::from_str("curl/8.7.1").unwrap(),
             );
             hdr.insert(
               warp::http::header::ACCEPT,
-              warp::http::header::HeaderValue::from_str(
-                "*/*",
-              )
-              .unwrap(),
+              warp::http::header::HeaderValue::from_str("*/*").unwrap(),
             );
             hdr.insert(
               warp::http::header::HOST,
-              warp::http::header::HeaderValue::from_str(
-                "api.udon.dance",
-              )
-              .unwrap(),
+              warp::http::header::HeaderValue::from_str("api.udon.dance").unwrap(),
             );
             hdr
           },
@@ -348,7 +326,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           None,
         )
         .await?;
-        
+
         let mut builder = warp::http::Response::builder();
         builder = builder.status(response.status());
         for (k, v) in response.headers().iter() {
@@ -700,7 +678,11 @@ pub async fn serve_video_mp4(
   if (audio_offset - 0.0).abs() > f64::EPSILON {
     let md5 = match md5 {
       Some(m) => m,
-      None => app.cdn.get_video_file_checksum_by_id(id).await.unwrap_or_default(),
+      None => app
+        .cdn
+        .get_video_file_checksum_by_id(id)
+        .await
+        .unwrap_or_default(),
     };
     let compensated = format!(
       "{}/{}-{}-audio-offset-{}.mp4",
