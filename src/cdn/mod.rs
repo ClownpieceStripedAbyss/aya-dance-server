@@ -160,10 +160,11 @@ impl CdnServiceImpl {
     &self,
     id: SongId,
     token: Option<String>,
+    checksum: ChecksumType,
     remote: IpAddr,
   ) -> Result<Option<CachedVideo>> {
     match token {
-      Some(token) => self.serve_file_auth(id, token, remote).await,
+      Some(token) => self.serve_file_auth(id, token, checksum, remote).await,
       None => self.serve_file_no_auth(id).await,
     }
   }
@@ -181,6 +182,7 @@ impl CdnServiceImpl {
     &self,
     id: SongId,
     token: String,
+    checksum: ChecksumType,
     remote: IpAddr,
   ) -> Result<Option<CachedVideo>> {
     trace!("serve_file: token={}, client={}", token, remote);
@@ -189,7 +191,7 @@ impl CdnServiceImpl {
       &token,
       &self.token_sign_secret,
       id,
-      &self.get_video_file_checksum_by_id(id).await?,
+      &checksum,
       self.token_valid_seconds,
     )?;
 

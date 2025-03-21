@@ -115,7 +115,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
         let id = id_checksum[0]
           .parse::<SongId>()
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
-        let _checksum_requested = id_checksum[1].to_string();
+        let checksum_requested = id_checksum[1].to_string();
         let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
         let token = match qs.get("auth") {
           Some(token) => Some(token.clone()),
@@ -131,7 +131,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           Some(t) if t == "wd" => &app.cdn,
           _ => &app.cdn,
         };
-        let video = match backing_cdn.serve_file(id, token, remote.clone()).await {
+        let video = match backing_cdn.serve_file(id, token, checksum_requested, remote.clone()).await {
           Ok(Some(video_file)) => video_file,
           Ok(None) => {
             warn!(
