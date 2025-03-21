@@ -17,7 +17,7 @@ use crate::{
   cdn::{
     proxy::{InspectingOpts, ProxyOpts},
     receipt::{RoomId, UserId},
-    CachedVideo, CachedVideoFile, CdnFetchResult,
+    CdnFetchResult,
   },
   ffmpeg::{ffmpeg_audio_compensation, ffmpeg_copy},
   types::SongId,
@@ -73,11 +73,11 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             );
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token) => {
+          CdnFetchResult::Hit(token, checksum) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
-            format!("/v/{}.mp4?auth={}&t=aya", id, token)
+            format!("/v/{}-{}.mp4?auth={}&t=aya", id, checksum, token)
           }
         };
         Ok::<_, Rejection>(
@@ -97,15 +97,22 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .and(real_ip())
     .and(crate::cdn::range::filter_range())
     .and_then(
-      |id_mp4: String,
+      |id_checksum_mp4: String,
        qs: HashMap<String, String>,
        app: AppService,
        remote: Option<IpAddr>,
        range: Option<String>| async move {
-        let id = id_mp4
+        let id_checksum = id_checksum_mp4
           .trim_end_matches(".mp4")
+          .split('-')
+          .collect::<Vec<&str>>();
+        if id_checksum.len() != 2 {
+          return Err(warp::reject::custom(CustomRejection::AreYouTryingToHackMe));
+        }
+        let id = id_checksum[0]
           .parse::<SongId>()
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
+        let checksum_requested = id_checksum[1].to_string();
         let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
         let token = match qs.get("auth") {
           Some(token) => Some(token.clone()),
@@ -121,7 +128,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           Some(t) if t == "wd" => &app.cdn,
           _ => &app.cdn,
         };
-        let video_file = match backing_cdn
+        let video = match backing_cdn
           .serve_file(Some(id), token, remote.clone())
           .await
         {
@@ -138,9 +145,23 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             return Err(warp::reject::custom(CustomRejection::BadToken));
           }
         };
+        
+        let video_file_checksum = backing_cdn.get_video_file_checksum_by_cached_video(&video).await
+          .map_err(|e| {
+            warn!("Failed to get checksum for video file: {}: {}", video.video_file(), e.to_string());
+            warp::reject::custom(CustomRejection::VideoExpired)
+          })?;
+        if video_file_checksum != checksum_requested {
+          warn!(
+            "[MISS] Cache {} expired: checksum mismatch, client={}, requested={}, available={}",
+            id, remote, checksum_requested, video_file_checksum
+          );
+          return Err(warp::reject::custom(CustomRejection::VideoExpired));
+        }
 
-        info!("[HIT] Cache {} found: serving {}", id, video_file);
-        serve_video_mp4(app, id, range, video_file, None).await
+        let video_file_path = video.video_file();
+        info!("[HIT] Cache {} found: serving {}", id, video_file_path);
+        serve_video_mp4(app, id, range, video_file_path, None).await
       },
     );
   //
@@ -259,11 +280,11 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             // Not found in our CDN, let's redirect to api.udon.dance
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token) => {
+          CdnFetchResult::Hit(token, checksum) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
-            format!("/v/{}.mp4?auth={}&t=wd", id, token)
+            format!("/v/{}-{}.mp4?auth={}&t=wd", id, checksum, token)
           }
         };
         Ok::<_, Rejection>(
@@ -620,6 +641,7 @@ pub enum CustomRejection {
   NoServeToken,
   IndexNotReady,
   CacheDirNotAvailable,
+  VideoExpired,
 }
 
 impl Reject for CustomRejection {}
@@ -675,38 +697,7 @@ pub async fn serve_video_mp4(
   if (audio_offset - 0.0).abs() > f64::EPSILON {
     let md5 = match md5 {
       Some(m) => m,
-      None => match app.cdn.get_video_file_path(id).await {
-        CachedVideoFile::Available(CachedVideo::VideoOverride { video_file }) => {
-          // Now get the file's last modified time to be the checksum
-          let last_modified = std::fs::metadata(video_file.as_str())
-            .map_err(|e| anyhow::anyhow!("Failed to get metadata: {:?}", e))
-            .and_then(|m| {
-              m.modified()
-                .map_err(|e| anyhow::anyhow!("Failed to get modified time: {:?}", e))
-            })
-            .and_then(|t| {
-              t.duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .map_err(|e| anyhow::anyhow!("Failed to get duration since epoch: {:?}", e))
-            })
-            .and_then(|d| Ok(d.as_secs().to_string()))
-            .unwrap_or_default();
-          format!("override-{}", last_modified)
-        }
-        CachedVideoFile::Available(CachedVideo::Video {
-          metadata_json_file, ..
-        }) => std::fs::File::open(metadata_json_file)
-          .map_err(|e| anyhow::anyhow!("Failed to open metadata: {:?}", e))
-          .and_then(|f| {
-            serde_json::from_reader::<_, aya_dance_types::Song>(f)
-              .map_err(|e| anyhow::anyhow!("Failed to parse metadata: {:?}", e))
-          })
-          .and_then(|s| {
-            s.checksum
-              .ok_or_else(|| anyhow::anyhow!("No checksum in metadata"))
-          })
-          .unwrap_or_default(),
-        CachedVideoFile::Unavailable { .. } => "".to_string(),
-      },
+      None => app.cdn.get_video_file_checksum_by_id(id).await.unwrap_or_default(),
     };
     let compensated = format!(
       "{}/{}-{}-audio-offset-{}.mp4",

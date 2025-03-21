@@ -22,6 +22,7 @@ pub struct CdnServiceImpl {
 
 pub type CdnService = Arc<CdnServiceImpl>;
 pub type CdnFetchToken = UuidString;
+pub type ChecksumType = String;
 
 impl CdnServiceImpl {
   pub fn new(video_path: String, video_override_path: String, cache_path: String) -> CdnService {
@@ -35,7 +36,7 @@ impl CdnServiceImpl {
 
 #[derive(Debug, Clone)]
 pub enum CdnFetchResult {
-  Hit(CdnFetchToken),
+  Hit(CdnFetchToken, ChecksumType),
   Miss,
 }
 
@@ -69,6 +70,45 @@ impl CachedVideo {
 }
 
 impl CdnServiceImpl {
+  pub async fn get_video_file_checksum_by_cached_video(&self, cached_video: &CachedVideo) -> Result<ChecksumType> {
+    match cached_video {
+      CachedVideo::VideoOverride { video_file } => {
+        // Now get the file's last modified time to be the checksum
+        std::fs::metadata(video_file.as_str())
+          .map_err(|e| anyhow::anyhow!("Failed to get metadata: {:?}", e))
+          .and_then(|m| {
+            m.modified()
+              .map_err(|e| anyhow::anyhow!("Failed to get modified time: {:?}", e))
+          })
+          .and_then(|t| {
+            t.duration_since(std::time::SystemTime::UNIX_EPOCH)
+              .map_err(|e| anyhow::anyhow!("Failed to get duration since epoch: {:?}", e))
+          })
+          .and_then(|d| Ok(d.as_secs().to_string()))
+          .map(|last_modified| format!("override{}", last_modified))
+      }
+      CachedVideo::Video { metadata_json_file, .. } => {
+        std::fs::File::open(metadata_json_file)
+          .map_err(|e| anyhow::anyhow!("Failed to open metadata: {:?}", e))
+          .and_then(|f| {
+            serde_json::from_reader::<_, aya_dance_types::Song>(f)
+              .map_err(|e| anyhow::anyhow!("Failed to parse metadata: {:?}", e))
+          })
+          .and_then(|s| {
+            s.checksum
+              .ok_or_else(|| anyhow::anyhow!("No checksum in metadata"))
+          })
+      }
+    }
+  }
+  
+  pub async fn get_video_file_checksum_by_id(&self, id: SongId) -> Result<ChecksumType> {
+    match self.get_video_file_path(id).await {
+      CachedVideoFile::Available(cached_video) => self.get_video_file_checksum_by_cached_video(&cached_video).await,
+      CachedVideoFile::Unavailable { .. } => Err(anyhow!("video file not found")),
+    }
+  }
+  
   pub async fn get_video_file_path(&self, id: SongId) -> CachedVideoFile {
     let metadata_json = format!("{}/{}/metadata.json", self.video_path, id);
     let video_mp4 = format!("{}/{}/video.mp4", self.video_path, id);
@@ -96,30 +136,28 @@ impl CdnServiceImpl {
     id: Option<SongId>,
     token: Option<String>,
     remote: IpAddr,
-  ) -> Result<Option<String>> {
+  ) -> Result<Option<CachedVideo>> {
     match token {
       Some(token) => self.serve_file_auth(id, token, remote).await,
-      None => match self
-        .serve_file_no_auth(id.ok_or_else(|| anyhow!("missing song id"))?)
-        .await
-      {
-        CachedVideoFile::Available(video) => Ok(Some(video.video_file())),
-        _ => Ok(None),
-      },
+      None => self.serve_file_no_auth(id).await,
     }
   }
 
-  async fn serve_file_no_auth(&self, id: SongId) -> CachedVideoFile {
-    trace!("serve_file_no_auth: id={}", id);
-    self.get_video_file_path(id).await
+  async fn serve_file_no_auth(&self, id: Option<SongId>) -> Result<Option<CachedVideo>> {
+    trace!("serve_file_no_auth: id={:?}", id);
+    
+    match self.get_video_file_path(id.ok_or_else(|| anyhow!("missing song id"))?).await {
+      CachedVideoFile::Available(video) => Ok(Some(video)),
+      _ => Ok(None),
+    }
   }
 
-  pub async fn serve_file_auth(
+  async fn serve_file_auth(
     &self,
     id: Option<SongId>,
     token: String,
     remote: IpAddr,
-  ) -> Result<Option<String>> {
+  ) -> Result<Option<CachedVideo>> {
     trace!("serve_file: token={}, client={}", token, remote);
 
     // Get the song id from the token
@@ -141,7 +179,7 @@ impl CdnServiceImpl {
     }
 
     match self.get_video_file_path(id_in_token).await {
-      CachedVideoFile::Available(video) => Ok(Some(video.video_file())),
+      CachedVideoFile::Available(video) => Ok(Some(video)),
       _ => Ok(None),
     }
   }
@@ -151,7 +189,13 @@ impl CdnServiceImpl {
     let token = token_for_song_id(id);
 
     match self.get_video_file_path(id).await {
-      CachedVideoFile::Available(_) => Ok(CdnFetchResult::Hit(token)),
+      CachedVideoFile::Available(video) => match self.get_video_file_checksum_by_cached_video(&video).await {
+        Ok(checksum) => Ok(CdnFetchResult::Hit(token, checksum)),
+        Err(e) => {
+          log::warn!("Failed to get checksum for video file, will force a cache-miss: {}: {}", video.video_file(), e);
+          Ok(CdnFetchResult::Miss)
+        }
+      }
       _ => Ok(CdnFetchResult::Miss),
     }
   }
