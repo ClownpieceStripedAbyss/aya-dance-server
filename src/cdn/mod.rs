@@ -18,18 +18,21 @@ pub struct CdnServiceImpl {
   pub video_path: String,
   pub video_override_path: String,
   pub cache_path: String,
+  pub token_valid_seconds: i64,
 }
 
 pub type CdnService = Arc<CdnServiceImpl>;
 pub type CdnFetchToken = UuidString;
 pub type ChecksumType = String;
+pub type TimestampType = i64;
 
 impl CdnServiceImpl {
-  pub fn new(video_path: String, video_override_path: String, cache_path: String) -> CdnService {
+  pub fn new(video_path: String, video_override_path: String, cache_path: String, token_valid_seconds: i64) -> CdnService {
     Arc::new(CdnServiceImpl {
       video_path,
       video_override_path,
       cache_path,
+      token_valid_seconds,
     })
   }
 }
@@ -161,7 +164,7 @@ impl CdnServiceImpl {
     trace!("serve_file: token={}, client={}", token, remote);
 
     // Get the song id from the token
-    let id_in_token = match song_id_for_token(&token) {
+    let (id_in_token, ts_in_token) = match song_id_for_token(&token) {
       Some(id) => id,
       None => return Err(anyhow!("wrong token format")),
     };
@@ -176,6 +179,10 @@ impl CdnServiceImpl {
         ));
       }
       _ => (),
+    }
+    // If timestamp is provided, it must not expire
+    if self.token_valid_seconds != 0 && ts_in_token + self.token_valid_seconds < chrono::Utc::now().timestamp() {
+      return Err(anyhow!("token expired"));
     }
 
     match self.get_video_file_path(id_in_token).await {
@@ -256,27 +263,21 @@ impl CdnServiceImpl {
 
 fn token_for_song_id(song_id: SongId) -> String {
   let uuid = Uuid::new_v4().to_string();
-  format!("{}{}", uuid, encode_song_id(song_id))
+  // We use a simple encoding to avoid exposing the actual song id.
+  // By converting the song id to a fixed-length string.
+  format!("{}{:08x}{:016x}", uuid, song_id, chrono::Utc::now().timestamp())
 }
 
-fn song_id_for_token(token: &str) -> Option<SongId> {
+fn song_id_for_token(token: &str) -> Option<(SongId, TimestampType)> {
   if token.len() < 36 {
     return None;
   }
-  let (uuid, song_id) = token.split_at(36);
+  let (uuid, song_id_and_ts) = token.split_at(36);
   if Uuid::parse_str(uuid).is_ok() {
-    decode_song_id(song_id)
+    let song_id = SongId::from_str_radix(&song_id_and_ts[0..8], 16).ok()?;
+    let ts = TimestampType::from_str_radix(&song_id_and_ts[8..], 16).ok()?;
+    Some((song_id, ts))
   } else {
     None
   }
-}
-
-fn encode_song_id(song_id: SongId) -> String {
-  // We use a simple encoding to avoid exposing the actual song id.
-  // By converting the song id to a fixed-length string.
-  format!("{:04x}", song_id)
-}
-
-fn decode_song_id(encoded: &str) -> Option<SongId> {
-  SongId::from_str_radix(encoded, 16).ok()
 }
