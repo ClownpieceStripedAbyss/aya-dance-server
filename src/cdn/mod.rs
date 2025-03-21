@@ -19,27 +19,31 @@ pub struct CdnServiceImpl {
   pub video_override_path: String,
   pub cache_path: String,
   pub token_valid_seconds: i64,
+  pub token_sign_secret: Option<String>,
 }
 
 pub type CdnService = Arc<CdnServiceImpl>;
 pub type CdnFetchToken = UuidString;
 pub type ChecksumType = String;
 pub type TimestampType = i64;
+pub type SignTimestampType = String;
+pub type SignType = String;
 
 impl CdnServiceImpl {
-  pub fn new(video_path: String, video_override_path: String, cache_path: String, token_valid_seconds: i64) -> CdnService {
+  pub fn new(video_path: String, video_override_path: String, cache_path: String, token_valid_seconds: i64, token_sign_secret: Option<String>) -> CdnService {
     Arc::new(CdnServiceImpl {
       video_path,
       video_override_path,
       cache_path,
       token_valid_seconds,
+      token_sign_secret,
     })
   }
 }
 
 #[derive(Debug, Clone)]
 pub enum CdnFetchResult {
-  Hit(CdnFetchToken, ChecksumType),
+  Hit(CdnFetchToken, ChecksumType, TimestampType, Option<(SignType, SignTimestampType)>),
   Miss,
 }
 
@@ -193,11 +197,18 @@ impl CdnServiceImpl {
 
   pub async fn serve_token(&self, id: SongId, remote: IpAddr) -> Result<CdnFetchResult> {
     trace!("serve_token: id={}, client={}", id, remote);
-    let token = token_for_song_id(id);
+    let (token, ts) = token_for_song_id(id);
 
     match self.get_video_file_path(id).await {
       CachedVideoFile::Available(video) => match self.get_video_file_checksum_by_cached_video(&video).await {
-        Ok(checksum) => Ok(CdnFetchResult::Hit(token, checksum)),
+        Ok(checksum) => {
+          let sign_ts = format!("{:08X}", ts);
+          let sign = self.token_sign_secret.as_ref().map(|secret| {
+            let sign_text = format!("{}/v/{}-{}.mp4{}", secret, id, checksum, sign_ts);
+            format!("{:x}", md5::compute(sign_text))
+          });
+          Ok(CdnFetchResult::Hit(token, checksum, ts, sign.map(|s| (s, sign_ts))))
+        },
         Err(e) => {
           log::warn!("Failed to get checksum for video file, will force a cache-miss: {}: {}", video.video_file(), e);
           Ok(CdnFetchResult::Miss)
@@ -261,11 +272,12 @@ impl CdnServiceImpl {
   }
 }
 
-fn token_for_song_id(song_id: SongId) -> String {
+fn token_for_song_id(song_id: SongId) -> (String, TimestampType) {
   let uuid = Uuid::new_v4().to_string();
   // We use a simple encoding to avoid exposing the actual song id.
   // By converting the song id to a fixed-length string.
-  format!("{}{:08x}{:016x}", uuid, song_id, chrono::Utc::now().timestamp())
+  let ts = chrono::Utc::now().timestamp();
+  (format!("{}{:08x}{:016x}", uuid, song_id, ts), ts)
 }
 
 fn song_id_for_token(token: &str) -> Option<(SongId, TimestampType)> {

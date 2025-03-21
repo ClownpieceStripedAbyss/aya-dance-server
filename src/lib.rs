@@ -64,6 +64,8 @@ pub struct AppOpts {
   pub admin_src_host: Option<Vec<String>>,
   #[clap(long, env, default_value = "3600")]
   pub token_valid_seconds: i64,
+  #[clap(long, env)]
+  pub token_sign_secret: Option<String>,
 
   #[clap(long, env, default_value = "false")]
   pub proxy_allow_304: bool,
@@ -94,6 +96,7 @@ impl AppServiceImpl {
       opts.video_override_path_ud.clone(),
       opts.cache_path_ud.clone(),
       opts.token_valid_seconds,
+      opts.token_sign_secret.clone(),
     );
     let typewriter = Arc::new(TypewriterServiceImpl::default());
     let receipt = ReceiptServiceImpl::new(

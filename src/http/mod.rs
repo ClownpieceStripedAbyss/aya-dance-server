@@ -73,7 +73,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             );
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token, checksum) => {
+          CdnFetchResult::Hit(token, checksum, _, _) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
@@ -280,11 +280,14 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             // Not found in our CDN, let's redirect to api.udon.dance
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token, checksum) => {
+          CdnFetchResult::Hit(token, checksum, _ts, sign) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
-            format!("/v/{}-{}.mp4?auth={}&t=wd", id, checksum, token)
+            match sign {
+              Some((sign, sign_ts)) => format!("/v/{}-{}.mp4?auth={}&t=wd&sign={}&time={}", id, checksum, token, sign, sign_ts),
+              None => format!("/v/{}-{}.mp4?auth={}&t=wd", id, checksum, token),
+            }
           }
         };
         Ok::<_, Rejection>(
