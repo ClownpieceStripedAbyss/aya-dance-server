@@ -44,9 +44,9 @@ struct QueueItem {
   #[serde(rename = "playerCount")]
   player_count: String,
   #[serde(rename = "songId")]
-  song_id: u32,
+  song_id: i32,
   major: String,
-  duration: u32,
+  duration: i32,
   group: String,
   #[serde(rename = "doubleWidth")]
   double_width: bool,
