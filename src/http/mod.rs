@@ -61,7 +61,7 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
         let serve = app
           .cdn
-          .serve_token(id, remote)
+          .serve_token(id, remote, "".to_string())
           .await
           .map_err(|_| warp::reject::custom(CustomRejection::NoServeToken))?;
         let location = match serve {
@@ -73,13 +73,13 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             );
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token, checksum, _ts, sign, sign_ts) => {
+          CdnFetchResult::Hit(token, checksum, _ts, _sign, _sign_ts) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
             format!(
-              "/v/{}-{}.mp4?auth={}&t=aya&sign={}&time={}",
-              id, checksum, token, sign, sign_ts
+              "/v/{}-{}.mp4?auth={}&t=aya&auth_key={}",
+              id, checksum, token, token,
             )
           }
         };
@@ -131,7 +131,10 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
           Some(t) if t == "wd" => &app.cdn,
           _ => &app.cdn,
         };
-        let video = match backing_cdn.serve_file(id, token, checksum_requested, remote.clone()).await {
+        let video = match backing_cdn
+          .serve_file(id, token, checksum_requested, remote.clone())
+          .await
+        {
           Ok(Some(video_file)) => video_file,
           Ok(None) => {
             warn!(
@@ -245,17 +248,23 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .and(warp::query::<HashMap<String, String>>())
     .and(with_service(&app))
     .and(real_ip())
+    .and(warp::header::headers_cloned())
     .and_then(
-      |query: HashMap<String, String>, app: AppService, remote: Option<IpAddr>| async move {
+      |query: HashMap<String, String>, app: AppService, remote: Option<IpAddr>, headers: warp::http::HeaderMap| async move {
         let id = query
           .get("id")
           .ok_or(warp::reject::custom(CustomRejection::BadVideoId))?
           .parse::<SongId>()
           .map_err(|_| warp::reject::custom(CustomRejection::BadVideoId))?;
         let remote = remote.ok_or(warp::reject::custom(CustomRejection::NoClientIP))?;
+        let user_agent = headers
+          .get(warp::http::header::USER_AGENT)
+          .ok_or(warp::reject::custom(CustomRejection::NoUserAgent))?
+          .to_str()
+          .map_err(|_| warp::reject::custom(CustomRejection::NoUserAgent))?;
         let serve = app
           .cdn
-          .serve_token(id, remote)
+          .serve_token(id, remote, user_agent.to_string())
           .await
           .map_err(|_| warp::reject::custom(CustomRejection::NoServeToken))?;
         let location = match serve {
@@ -267,13 +276,13 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
             // Not found in our CDN, let's redirect to api.udon.dance
             format!("https://api.udon.dance/Api/Songs/play?id={}", id)
           }
-          CdnFetchResult::Hit(token, checksum, _ts, sign, sign_ts) => {
+          CdnFetchResult::Hit(token, checksum, _ts, _sign, _sign_ts) => {
             // Found in our CDN, let's redirect to the resource gateway.
             // Note: in prior versions, we used the format `{token}.mp4`,
             // which turned out it's not caching-friendly.
             format!(
-              "/v/{}-{}.mp4?auth={}&t=wd&sign={}&time={}",
-              id, checksum, token, sign, sign_ts
+              "/v/{}-{}.mp4?auth={}&t=wd&auth_key={}",
+              id, checksum, token, token,
             )
           }
         };
@@ -619,6 +628,7 @@ pub enum CustomRejection {
   BadToken,
   AreYouTryingToHackMe,
   NoClientIP,
+  NoUserAgent,
   NoServeToken,
   IndexNotReady,
   CacheDirNotAvailable,
