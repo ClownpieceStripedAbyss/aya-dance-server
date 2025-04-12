@@ -6,6 +6,7 @@ use log::{info, warn};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::{
+  cdn::CachedVideoFile,
   wanna::{
     ffmpeg::{ffmpeg_audio_compensation, ffmpeg_copy},
     log_watcher::LogLine,
@@ -162,6 +163,16 @@ pub async fn submit_new_compensator_task(
   }
 
   let mut running_tasks = app.audio_compensator.running_tasks.write().await;
+
+  // double-checked lock
+  if std::path::Path::new(compensated.as_str()).exists() {
+    log::info!(
+      "Compensated file for {} already exists, skipping task",
+      task.song_id
+    );
+    return Ok(compensated);
+  }
+
   // If the task is already running, skip it
   if running_tasks.iter().any(|t| task.same_task(t)) {
     // TODO: give a wait handle
@@ -187,15 +198,66 @@ async fn serve_audio_compensator(app: AppService) -> anyhow::Result<()> {
 
   let (task_tx, mut task_rx) = mpsc::unbounded_channel::<CompensatorTask>();
 
-  tokio::spawn(async move {
-    while let Some(task) = task_rx.recv().await {
-      if let Err(e) = submit_new_compensator_task(app.clone(), task).await {
-        log::warn!("Compensator task failed: {}", e);
+  {
+    let app = app.clone();
+    tokio::spawn(async move {
+      while let Some(task) = task_rx.recv().await {
+        if let Err(e) = submit_new_compensator_task(app.clone(), task).await {
+          log::warn!("Compensator task failed: {}", e);
+        }
       }
-    }
-  });
+    });
+  }
 
-  while let Some(line) = log_rx.recv().await {}
+  while let Some(line) = log_rx.recv().await {
+    match line {
+      LogLine::Queue { items } => {
+        for item in items {
+          let audio_offset = app.opts.audio_compensation;
+          if (audio_offset - 0.0).abs() < f64::EPSILON {
+            continue;
+          }
+
+          let song_id = item.song_id;
+          if song_id == -1 {
+            continue;
+          } // Custom URL, skip
+          let song_id = song_id as SongId;
+
+          // Assume we are serving this id
+          let cached_video = match app.cdn.get_video_file_path(song_id).await {
+            CachedVideoFile::Available(cached_video) => cached_video,
+            CachedVideoFile::Unavailable { .. } => {
+              continue;
+            }
+          };
+          let checksum = match app
+            .cdn
+            .get_video_file_checksum_by_cached_video(&cached_video)
+            .await
+          {
+            Ok(checksum) => checksum,
+            Err(_) => {
+              continue;
+            }
+          };
+
+          let input_video_path = cached_video.video_file();
+          task_tx
+            .send(CompensatorTask {
+              song_id,
+              song_md5: Some(checksum),
+              input_video_path,
+              audio_offset,
+            })
+            .unwrap_or_else(|e| {
+              log::warn!("Failed to send task to audio compensator: {}", e);
+            });
+        }
+      }
+      _ => (),
+    }
+  }
 
   Ok(())
 }
