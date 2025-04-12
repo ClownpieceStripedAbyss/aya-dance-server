@@ -398,7 +398,7 @@ mod tests {
     );
     assert_eq!(sign, "20dcd06fa20d7b4b1ae07466a556fa52");
   }
-  
+
   #[test]
   fn test_rand() {
     let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.43 Safari/537.36".to_string();

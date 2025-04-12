@@ -109,9 +109,22 @@ async fn main() {
     }
   };
 
+  let (log_watcher, log_watcher_enabled) = match cfg!(windows) {
+    true => {
+      let log_watcher = tokio::spawn(wanna_cdn::wanna::log_watcher::serve_log_watcher(
+        app.clone(),
+      ));
+      (log_watcher, true)
+    }
+    false => {
+      info!("Log watcher disabled");
+      (tokio::task::spawn(async { Ok(()) }), false)
+    }
+  };
+
   let (obws, obws_enabled) = match (&opts.obws_host, opts.obws_port) {
     (Some(host), port) => {
-      let obws = tokio::spawn(wanna_cdn::obws::serve_obws(host.clone(), port));
+      let obws = tokio::spawn(wanna_cdn::wanna::obws::serve_obws(app.clone(), host.clone(), port));
       (obws, true)
     }
     _ => {
@@ -126,6 +139,13 @@ async fn main() {
               Ok(Ok(_)) => info!("SNI proxy exited successfully"),
               Ok(Err(e)) => warn!("SNI proxy exited with error: {}", e),
               Err(e) => warn!("SNI proxy exited with error: {}", e),
+          }
+      },
+      e = log_watcher, if log_watcher_enabled => {
+          match e {
+              Ok(Ok(_)) => info!("Log watcher exited successfully"),
+              Ok(Err(e)) => warn!("Log watcher exited with error: {}", e),
+              Err(e) => warn!("Log watcher exited with error: {}", e),
           }
       },
       e = obws, if obws_enabled => {

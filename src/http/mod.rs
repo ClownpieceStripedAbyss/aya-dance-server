@@ -250,7 +250,10 @@ pub async fn serve_video_http(app: AppService) -> crate::Result<()> {
     .and(real_ip())
     .and(warp::header::headers_cloned())
     .and_then(
-      |query: HashMap<String, String>, app: AppService, remote: Option<IpAddr>, headers: warp::http::HeaderMap| async move {
+      |query: HashMap<String, String>,
+       app: AppService,
+       remote: Option<IpAddr>,
+       headers: warp::http::HeaderMap| async move {
         let id = query
           .get("id")
           .ok_or(warp::reject::custom(CustomRejection::BadVideoId))?

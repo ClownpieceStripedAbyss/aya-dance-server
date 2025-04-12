@@ -2,19 +2,63 @@ use std::{
   env,
   io::SeekFrom,
   path::{Path, PathBuf},
-  sync::mpsc as std_mpsc,
+  sync::{mpsc as std_mpsc, Arc},
   thread,
+  time::Duration,
 };
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use obws;
-use serde_json::json;
 use tokio::{
   fs::File,
   io::{AsyncBufReadExt, AsyncSeekExt, BufReader},
-  sync::mpsc,
-  time::{sleep, Duration},
+  sync::{mpsc, RwLock},
+  time::sleep,
 };
+
+use crate::AppService;
+
+type SenderVec = Arc<RwLock<Vec<mpsc::Sender<LogLine>>>>;
+
+#[derive(Debug, Default)]
+pub struct WannaLogWatcherImpl {
+  senders: SenderVec,
+}
+
+pub type WannaLogWatcher = Arc<WannaLogWatcherImpl>;
+
+impl WannaLogWatcherImpl {
+  pub async fn register_recipient(&self, sender: mpsc::Sender<LogLine>) {
+    let mut senders = self.senders.write().await;
+    senders.push(sender);
+  }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct QueueItem {
+  #[serde(rename = "playerNames")]
+  pub player_names: Vec<String>,
+  pub title: String,
+  #[serde(rename = "playerCount")]
+  pub player_count: String,
+  #[serde(rename = "songId")]
+  pub song_id: i32,
+  pub major: String,
+  pub duration: i32,
+  pub group: String,
+  #[serde(rename = "doubleWidth")]
+  pub double_width: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum LogLine {
+  VideoPlay {
+    song_info: String,
+    song_requester: Option<String>,
+  },
+  Queue {
+    items: Vec<QueueItem>,
+  },
+}
 
 fn get_vrchat_log_dir() -> PathBuf {
   let appdata = env::var("APPDATA").expect("no APPDATA?");
@@ -36,34 +80,7 @@ fn is_log_file(path: &Path) -> bool {
   }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct QueueItem {
-  #[serde(rename = "playerNames")]
-  player_names: Vec<String>,
-  title: String,
-  #[serde(rename = "playerCount")]
-  player_count: String,
-  #[serde(rename = "songId")]
-  song_id: i32,
-  major: String,
-  duration: i32,
-  group: String,
-  #[serde(rename = "doubleWidth")]
-  double_width: bool,
-}
-
-#[derive(Debug, Clone)]
-enum LogLine {
-  VideoPlay {
-    song_info: String,
-    song_requester: Option<String>,
-  },
-  Queue {
-    items: Vec<QueueItem>,
-  },
-}
-
-async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
+async fn tail_file(path: PathBuf, sender: SenderVec) {
   log::info!("Watching log file: {:?}", path);
 
   let file = match File::open(&path).await {
@@ -106,12 +123,14 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
             }
           };
           let song_info = info.splitn(2, " (").next().unwrap_or("");
-          let _ = sender
-            .send(LogLine::VideoPlay {
-              song_info: song_info.to_string(),
-              song_requester: (requester != "Random").then(|| requester.to_string()),
-            })
-            .await;
+          for sender in sender.read().await.iter() {
+            let _ = sender
+              .send(LogLine::VideoPlay {
+                song_info: song_info.to_string(),
+                song_requester: (requester != "Random").then(|| requester.to_string()),
+              })
+              .await;
+          }
         }
 
         if line.contains("OnPreSerialization: queue info serialized: ")
@@ -143,7 +162,13 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
               continue;
             }
           };
-          let _ = sender.send(LogLine::Queue { items: queue_item }).await;
+          for sender in sender.read().await.iter() {
+            let _ = sender
+              .send(LogLine::Queue {
+                items: queue_item.clone(),
+              })
+              .await;
+          }
         }
       }
 
@@ -155,68 +180,7 @@ async fn tail_file(path: PathBuf, sender: mpsc::Sender<LogLine>) {
   }
 }
 
-pub async fn serve_obws(obs_host: String, obs_port: u16) -> anyhow::Result<()> {
-  loop {
-    log::info!("Connecting to OBS WebSocket {}:{}", obs_host, obs_port);
-    match obws::Client::connect(obs_host.clone(), obs_port, None as Option<&str>).await {
-      Ok(client) => {
-        let _ = serve_obws_impl(client).await;
-      }
-      Err(e) => {
-        log::warn!("Failed to connect to OBS WebSocket: {:?}, retry in 60s", e);
-      }
-    }
-    tokio::time::sleep(Duration::from_secs(60)).await;
-  }
-}
-
-async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
-  log::info!("OBS WebSocket connected");
-  let (log_tx, mut log_rx) = mpsc::channel::<LogLine>(100);
-
-  tokio::spawn(async move {
-    while let Some(line) = log_rx.recv().await {
-      let (input_name, text) = match line {
-        LogLine::VideoPlay {
-          song_info,
-          song_requester,
-        } => (
-          "WDNow",
-          match song_requester {
-            None => format!("当前播放: {}", song_info),
-            Some(song_requester) => format!("当前播放: {} ({})", song_info, song_requester),
-          },
-        ),
-        LogLine::Queue { items } => ("WDQueue", {
-          match items.first() {
-            Some(item) => {
-              let song_info = format!("{} - {}", item.title, item.group);
-              let song_requester = item.player_names.join(", ");
-              format!("下一首: {} ({})", song_info, song_requester)
-            }
-            None => "".to_string(),
-          }
-        }),
-      };
-
-      log::info!("Updating OBS text source: {} = {}", input_name, text);
-
-      if let Err(e) = obs_client
-        .inputs()
-        .set_settings(obws::requests::inputs::SetSettings {
-          input: obws::requests::inputs::InputId::Name(input_name),
-          settings: &json!({
-              "text": text,
-          }),
-          overlay: Some(true),
-        })
-        .await
-      {
-        log::warn!("Failed to update OBS text source: {:?}", e);
-      }
-    }
-  });
-
+pub async fn serve_log_watcher(app: AppService) -> anyhow::Result<()> {
   // tail each log file in the log directory
   let log_dir = get_vrchat_log_dir();
   log::info!("VRC log folder: {:?}", log_dir);
@@ -224,8 +188,8 @@ async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
     for entry in entries.filter_map(Result::ok) {
       let path = entry.path();
       if is_log_file(&path) {
-        let tx = log_tx.clone();
-        tokio::spawn(tail_file(path, tx));
+        let senders = app.log_watcher.senders.clone();
+        tokio::spawn(tail_file(path, senders));
       }
     }
   } else {
@@ -281,8 +245,8 @@ async fn serve_obws_impl(obs_client: obws::Client) -> anyhow::Result<()> {
   }
 
   while let Some(new_path) = new_file_rx.recv().await {
-    let tx = log_tx.clone();
-    tokio::spawn(tail_file(new_path, tx));
+    let senders = app.log_watcher.senders.clone();
+    tokio::spawn(tail_file(new_path, senders));
   }
 
   Ok(())

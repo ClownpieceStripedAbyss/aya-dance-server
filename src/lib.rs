@@ -10,6 +10,7 @@ use crate::{
     CdnService, CdnServiceImpl,
   },
   rtsp::{TypewriterService, TypewriterServiceImpl},
+  wanna::log_watcher::{WannaLogWatcher, WannaLogWatcherImpl},
 };
 
 pub mod cdn;
@@ -17,9 +18,9 @@ pub mod ffmpeg;
 pub mod forward;
 pub mod http;
 pub mod index;
-pub mod obws;
 pub mod rtsp;
 pub mod types;
+pub mod wanna;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -85,6 +86,7 @@ pub struct AppServiceImpl {
   pub typewriter: TypewriterService,
   pub cdn: CdnService,
   pub receipt: ReceiptService,
+  pub log_watcher: WannaLogWatcher,
 }
 
 pub type AppService = Arc<AppServiceImpl>;
@@ -104,11 +106,13 @@ impl AppServiceImpl {
       Duration::from_secs(opts.receipt_default_expire_seconds),
     )
     .await?;
+    let log_watcher = Arc::new(WannaLogWatcherImpl::default());
     Ok(Arc::new(AppServiceImpl {
       opts,
       cdn,
       typewriter,
       receipt,
+      log_watcher,
     }))
   }
 }
