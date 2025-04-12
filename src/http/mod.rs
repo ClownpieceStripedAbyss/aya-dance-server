@@ -689,31 +689,26 @@ pub async fn serve_video_mp4(
 ) -> Result<warp::http::Response<hyper::body::Body>, Rejection> {
   let audio_offset = app.opts.audio_compensation;
   if (audio_offset - 0.0).abs() > f64::EPSILON {
-    let (compensated, _) = crate::wanna::audio_compensator::compute_compensated_file_path(
+    return match crate::wanna::audio_compensator::submit_new_compensator_task(
       app.clone(),
-      id,
-      audio_offset,
-      md5.clone(),
+      CompensatorTask {
+        song_id: id,
+        song_md5: md5,
+        input_video_path: video_file.clone(),
+        audio_offset,
+      },
     )
-    .await;
-    if !std::path::Path::new(compensated.as_str()).exists() {
-      if let Err(e) = crate::wanna::audio_compensator::submit_new_compensator_task(
-        app.clone(),
-        CompensatorTask {
-          song_id: id,
-          song_md5: md5,
-          input_video_path: video_file.clone(),
-          audio_offset,
-        },
-      )
-      .await
-      {
+    .await
+    {
+      Err(e) => {
         warn!("Failed to compensate {}, serving original video: {}", id, e);
-        return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
+        crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await
       }
-    }
-    info!("Serving compensated {}: {}", id, compensated);
-    return crate::cdn::range::get_range(range, compensated.as_str(), "video/mp4").await;
+      Ok(compensated) => {
+        info!("Serving compensated {}: {}", id, compensated);
+        crate::cdn::range::get_range(range, compensated.as_str(), "video/mp4").await
+      }
+    };
   }
   crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await
 }

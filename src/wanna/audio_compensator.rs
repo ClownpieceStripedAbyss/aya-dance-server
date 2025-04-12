@@ -144,26 +144,40 @@ async fn compensate_one_task(app: AppService, task: CompensatorTask) -> anyhow::
 pub async fn submit_new_compensator_task(
   app: AppService,
   task: CompensatorTask,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
   log::info!("Received audio compensation task: {}", task.song_id);
+  let (compensated, _) = compute_compensated_file_path(
+    app.clone(),
+    task.song_id,
+    task.audio_offset,
+    task.song_md5.clone(),
+  )
+  .await;
+  if std::path::Path::new(compensated.as_str()).exists() {
+    log::info!(
+      "Compensated file for {} already exists, skipping task",
+      task.song_id
+    );
+    return Ok(compensated);
+  }
+
   let mut running_tasks = app.audio_compensator.running_tasks.write().await;
   // If the task is already running, skip it
   if running_tasks.iter().any(|t| task.same_task(t)) {
-    log::info!(
+    // TODO: give a wait handle
+    return Err(anyhow!(
       "Compensate task for {} already running, don't submit again",
       task.song_id
-    );
-    return Ok(());
+    ));
   }
 
   // Now record we are running this task, don't push the same task again
   running_tasks.push(task.clone());
   let result = compensate_one_task(app.clone(), task.clone()).await;
-
   // Remove the task from the running tasks
   running_tasks.retain(|t| !t.same_task(&task));
 
-  result
+  result.map(|_| compensated)
 }
 
 async fn serve_audio_compensator(app: AppService) -> anyhow::Result<()> {
