@@ -7,9 +7,11 @@ pub async fn serve(app: AppService, obs_host: String, obs_port: u16) -> anyhow::
   loop {
     log::info!("Connecting to OBS WebSocket {}:{}", obs_host, obs_port);
     match obws::Client::connect(obs_host.clone(), obs_port, None as Option<&str>).await {
-      Ok(client) => {
-        let _ = serve_obws_impl(app.clone(), client).await;
-      }
+      Ok(client) => serve_obws_impl(app.clone(), client)
+        .await
+        .unwrap_or_else(|e| {
+          log::warn!("OBS WebSocket disconnected: {:?}", e);
+        }),
       Err(e) => {
         log::warn!("Failed to connect to OBS WebSocket: {:?}, retry in 60s", e);
       }
@@ -49,7 +51,7 @@ async fn serve_obws_impl(app: AppService, obs_client: obws::Client) -> anyhow::R
 
     log::info!("Updating OBS text source: {} = {}", input_name, text);
 
-    if let Err(e) = obs_client
+    obs_client
       .inputs()
       .set_settings(obws::requests::inputs::SetSettings {
         input: obws::requests::inputs::InputId::Name(input_name),
@@ -58,10 +60,8 @@ async fn serve_obws_impl(app: AppService, obs_client: obws::Client) -> anyhow::R
         }),
         overlay: Some(true),
       })
-      .await
-    {
-      log::warn!("Failed to update OBS text source: {:?}", e);
-    }
+      .await?;
+    // ^ If fails, return error and try reconnecting to OBS
   }
 
   Ok(())
