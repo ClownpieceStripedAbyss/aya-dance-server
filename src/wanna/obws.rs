@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 
 use crate::{wanna::log_watcher::LogLine, AppService};
 
-pub async fn serve_obws(app: AppService, obs_host: String, obs_port: u16) -> anyhow::Result<()> {
+pub async fn serve(app: AppService, obs_host: String, obs_port: u16) -> anyhow::Result<()> {
   loop {
     log::info!("Connecting to OBS WebSocket {}:{}", obs_host, obs_port);
     match obws::Client::connect(obs_host.clone(), obs_port, None as Option<&str>).await {

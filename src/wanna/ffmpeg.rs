@@ -537,7 +537,7 @@ mod tests {
       "wannadance-cache", id, md5, audio_offset
     );
     if !std::path::Path::new(compensated.as_str()).exists() {
-      if let Err(e) = std::fs::create_dir_all("wannadance-cache") {
+      if let Err(e) = std::fs::create_dir_all("../../wannadance-cache") {
         warn!(
           "Failed to create cache directory, serving original video: {:?}",
           e
@@ -612,7 +612,7 @@ mod tests {
           .init();
 
         // Remove "114514--audio-offset-0.16666667.mp4" before running this test
-        std::fs::remove_file("wannadance-cache/114514--audio-offset-0.16666667.mp4")
+        std::fs::remove_file("../../wannadance-cache/114514--audio-offset-0.16666667.mp4")
           .unwrap_or_default();
         benchmark_on_mp4(114514, "wannadance-song/114514/video.mp4".to_string()).await;
       });

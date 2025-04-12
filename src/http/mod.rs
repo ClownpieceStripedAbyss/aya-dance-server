@@ -19,8 +19,8 @@ use crate::{
     receipt::{RoomId, UserId},
     CdnFetchResult,
   },
-  ffmpeg::{ffmpeg_audio_compensation, ffmpeg_copy},
   types::SongId,
+  wanna::audio_compensator::CompensatorTask,
   AppService,
 };
 
@@ -689,78 +689,27 @@ pub async fn serve_video_mp4(
 ) -> Result<warp::http::Response<hyper::body::Body>, Rejection> {
   let audio_offset = app.opts.audio_compensation;
   if (audio_offset - 0.0).abs() > f64::EPSILON {
-    let md5 = match md5 {
-      Some(m) => m,
-      None => app
-        .cdn
-        .get_video_file_checksum_by_id(id)
-        .await
-        .unwrap_or_default(),
-    };
-    let compensated = format!(
-      "{}/{}-{}-audio-offset-{}.mp4",
-      app.cdn.cache_path, id, md5, audio_offset
-    );
+    let (compensated, _) = crate::wanna::audio_compensator::compute_compensated_file_path(
+      app.clone(),
+      id,
+      audio_offset,
+      md5.clone(),
+    )
+    .await;
     if !std::path::Path::new(compensated.as_str()).exists() {
-      if let Err(e) = std::fs::create_dir_all(app.cdn.cache_path.as_str()) {
-        warn!(
-          "Failed to create cache directory, serving original video: {:?}",
-          e
-        );
+      if let Err(e) = crate::wanna::audio_compensator::submit_new_compensator_task(
+        app.clone(),
+        CompensatorTask {
+          song_id: id,
+          song_md5: md5,
+          input_video_path: video_file.clone(),
+          audio_offset,
+        },
+      )
+      .await
+      {
+        warn!("Failed to compensate {}, serving original video: {}", id, e);
         return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
-      }
-
-      let compensated_stage1 = format!(
-        "{}/{}-{}-audio-offset-{}-nocopy.mp4",
-        app.cdn.cache_path, id, md5, audio_offset
-      );
-
-      let start = std::time::Instant::now();
-      let stats = match ffmpeg_audio_compensation(
-        video_file.as_str(),
-        compensated_stage1.as_str(),
-        audio_offset,
-      ) {
-        Ok(stats) => stats,
-        Err(e) => {
-          warn!(
-            "Failed to compensate audio for song {}, serving original video: {:?}",
-            id, e
-          );
-          return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
-        }
-      };
-
-      info!(
-        "Compensate {} (ss+aac, {:.2}s, vcopy={:.3}s, adec={:.3}s, ares={:.3}s, aenc={:.3}s)",
-        id,
-        start.elapsed().as_secs_f64(),
-        stats.video_copy_secs,
-        stats.audio_decode_secs,
-        stats.audio_resample_secs,
-        stats.audio_encode_secs,
-      );
-
-      let start = std::time::Instant::now();
-      if let Err(e) = ffmpeg_copy(compensated_stage1.as_str(), compensated.as_str()) {
-        warn!(
-          "Failed to copy compensated audio for song {} (file: {}), serving original video: {:?}",
-          id, compensated_stage1, e
-        );
-        return crate::cdn::range::get_range(range, video_file.as_str(), "video/mp4").await;
-      }
-
-      info!(
-        "Compensate {} (copy,   {:.2}s)",
-        id,
-        start.elapsed().as_secs_f64(),
-      );
-
-      if let Err(e) = std::fs::remove_file(compensated_stage1.as_str()) {
-        warn!(
-          "Failed to remove temporary file {}: {:?}",
-          compensated_stage1, e
-        );
       }
     }
     info!("Serving compensated {}: {}", id, compensated);

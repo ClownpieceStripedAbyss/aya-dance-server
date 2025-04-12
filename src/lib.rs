@@ -10,11 +10,13 @@ use crate::{
     CdnService, CdnServiceImpl,
   },
   rtsp::{TypewriterService, TypewriterServiceImpl},
-  wanna::log_watcher::{WannaLogWatcher, WannaLogWatcherImpl},
+  wanna::{
+    audio_compensator::{AudioCompensatorService, AudioCompensatorServiceImpl},
+    log_watcher::{WannaLogWatcher, WannaLogWatcherImpl},
+  },
 };
 
 pub mod cdn;
-pub mod ffmpeg;
 pub mod forward;
 pub mod http;
 pub mod index;
@@ -87,6 +89,7 @@ pub struct AppServiceImpl {
   pub cdn: CdnService,
   pub receipt: ReceiptService,
   pub log_watcher: WannaLogWatcher,
+  pub audio_compensator: AudioCompensatorService,
 }
 
 pub type AppService = Arc<AppServiceImpl>;
@@ -107,12 +110,14 @@ impl AppServiceImpl {
     )
     .await?;
     let log_watcher = Arc::new(WannaLogWatcherImpl::default());
+    let audio_compensator = Arc::new(AudioCompensatorServiceImpl::default());
     Ok(Arc::new(AppServiceImpl {
       opts,
       cdn,
       typewriter,
       receipt,
       log_watcher,
+      audio_compensator,
     }))
   }
 }

@@ -180,7 +180,7 @@ async fn tail_file(path: PathBuf, sender: SenderVec) {
   }
 }
 
-pub async fn serve_log_watcher(app: AppService) -> anyhow::Result<()> {
+pub async fn serve(app: AppService) -> anyhow::Result<()> {
   // tail each log file in the log directory
   let log_dir = get_vrchat_log_dir();
   log::info!("VRC log folder: {:?}", log_dir);

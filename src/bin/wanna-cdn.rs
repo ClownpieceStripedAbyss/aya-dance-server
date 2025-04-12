@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use clap::Parser;
 use log::{info, warn};
-use wanna_cdn::{AppOpts, AppServiceImpl};
+use wanna_cdn::{
+  wanna::{audio_compensator, log_watcher, obws},
+  AppOpts, AppServiceImpl,
+};
 
 fn print_license() {
   println!(
@@ -111,9 +114,7 @@ async fn main() {
 
   let (log_watcher, log_watcher_enabled) = match cfg!(windows) {
     true => {
-      let log_watcher = tokio::spawn(wanna_cdn::wanna::log_watcher::serve_log_watcher(
-        app.clone(),
-      ));
+      let log_watcher = tokio::spawn(log_watcher::serve(app.clone()));
       (log_watcher, true)
     }
     false => {
@@ -122,9 +123,21 @@ async fn main() {
     }
   };
 
+  let (audio_compensator, audio_compensator_enabled) =
+    match (app.opts.audio_compensation - 0.0).abs() > f64::EPSILON {
+      true => {
+        let audio_compensator = tokio::spawn(audio_compensator::serve(app.clone()));
+        (audio_compensator, true)
+      }
+      false => {
+        info!("Audio compensator disabled");
+        (tokio::task::spawn(async { Ok(()) }), false)
+      }
+    };
+
   let (obws, obws_enabled) = match (&opts.obws_host, opts.obws_port) {
     (Some(host), port) => {
-      let obws = tokio::spawn(wanna_cdn::wanna::obws::serve_obws(app.clone(), host.clone(), port));
+      let obws = tokio::spawn(obws::serve(app.clone(), host.clone(), port));
       (obws, true)
     }
     _ => {
@@ -146,6 +159,13 @@ async fn main() {
               Ok(Ok(_)) => info!("Log watcher exited successfully"),
               Ok(Err(e)) => warn!("Log watcher exited with error: {}", e),
               Err(e) => warn!("Log watcher exited with error: {}", e),
+          }
+      },
+      e = audio_compensator, if audio_compensator_enabled => {
+          match e {
+              Ok(Ok(_)) => info!("Audio compensator exited successfully"),
+              Ok(Err(e)) => warn!("Audio compensator exited with error: {}", e),
+              Err(e) => warn!("Audio compensator exited with error: {}", e),
           }
       },
       e = obws, if obws_enabled => {
